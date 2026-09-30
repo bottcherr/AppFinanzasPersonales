@@ -41,7 +41,14 @@ Datos en `localStorage` (clave `appfinanzas.v1`). Montos como enteros. No hay se
 - Probar en el panel del navegador en tamaño celular (375×812).
 - Hacer commit y push solo cuando el usuario lo pida.
 
+## Probar y publicar
+
+- Local: `python tools/serve.py` → http://localhost:5174
+- Repo: https://github.com/bottcherr/AppFinanzasPersonales (rama `main`). La carpeta `Idea Flujo App/` no se sube (.gitignore).
+- App publicada (GitHub Pages): https://bottcherr.github.io/AppFinanzasPersonales/ — URL del atajo:
+  `https://bottcherr.github.io/AppFinanzasPersonales/#/rapido?monto=[Cantidad]&desc=[Texto codificado]`
+
 ## Pendiente
 
-- Prueba 0 del atajo en el iPhone (decide Plan A o B). Nombre del repo / URL de GitHub Pages.
+- Prueba 0 del atajo en el iPhone (decide Plan A o B).
 - Preguntas abiertas del spec: moneda y decimales, categorías iniciales, transferencias/ahorro.
