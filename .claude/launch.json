@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "appfinanzas",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["tools/serve.py"],
+      "port": 5174
+    }
+  ]
+}
