@@ -723,10 +723,7 @@ button.row:active {
   width: 44px;
   height: 44px;
   border-radius: 13px;
-  background: var(--card-grad);
-  display: grid;
-  place-items: center;
-  color: #fff;
+  border: 1px solid var(--border);
 }
 
 .brand-title + .month-nav {

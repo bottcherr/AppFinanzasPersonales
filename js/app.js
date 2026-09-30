@@ -570,7 +570,7 @@ function renderHome() {
     `<div class="screen">
       <header class="home-top">
         <div class="brand">
-          <span class="logo">${icon('trend')}</span>
+          <img class="logo" src="icons/icon.svg" alt="">
           <div><h1 class="brand-title">Finanzas</h1>${monthNav()}</div>
         </div>
         <button class="icon-btn" data-action="toggle-hide" aria-label="${hide ? 'Mostrar' : 'Ocultar'} montos">${icon(hide ? 'eye-off' : 'eye')}</button>
