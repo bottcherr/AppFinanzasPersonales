@@ -11,8 +11,7 @@ Hermana de AppGYM (`../AppGYM`): mismo stack y mismas reglas.
 
 ## Stack
 
-HTML + CSS + JavaScript puro con módulos ES. Sin frameworks, sin build, sin dependencias en la web
-(`package.json` es solo para Capacitor, ver más abajo).
+HTML + CSS + JavaScript puro con módulos ES. Sin frameworks, sin build, sin dependencias.
 Datos en `localStorage` (clave `appfinanzas.v1`). Montos como enteros. No hay servidor.
 
 ## Archivos
@@ -49,20 +48,7 @@ Datos en `localStorage` (clave `appfinanzas.v1`). Montos como enteros. No hay se
 - App publicada (GitHub Pages): https://bottcherr.github.io/AppFinanzasPersonales/ — URL del atajo:
   `https://bottcherr.github.io/AppFinanzasPersonales/#/rapido?monto=[Cantidad]&desc=[Texto codificado]`
 
-## App de iPhone (Capacitor + AltStore)
-
-- **Prueba 0 (30/09/2026): el atajo con "Abrir URLs" abre Safari, no la web agregada a inicio.** Por eso la web se
-  empaqueta con Capacitor 8 (`ios/`, Swift Package Manager, sin CocoaPods) y se instala con AltStore (gratis,
-  renovar cada 7 días). El usuario no tiene Mac: compila GitHub Actions (`.github/workflows/ios.yml`) y publica
-  `AppFinanzas.ipa` sin firmar en el release `ios`.
-- El atajo abre `appfinanzas://rapido?monto=…&desc=…` (`CFBundleURLTypes` en `ios/App/App/Info.plist`).
-  En app.js, `openDeepLink()` lo convierte en `#/rapido?…` (plugin `@capacitor/app`, vía `Capacitor.registerPlugin`,
-  sin bundler). `isNative` desactiva el service worker adentro de la app.
-- `npm run sync` = `tools/build-www.mjs` (copia la web a `www/`) + `cap sync ios`. `www/` y `node_modules/` no se suben.
-- `tools/make-icons.mjs` también genera el ícono de 1024 y la pantalla de carga de iOS.
-- La web sola (GitHub Pages) sigue funcionando; sus datos no se comparten con la app (pasar con backup .json).
-
 ## Pendiente
 
-- Primera instalación con AltStore y prueba del atajo con `appfinanzas://`.
+- Prueba 0 del atajo en el iPhone (decide Plan A o B).
 - Preguntas abiertas del spec: moneda y decimales, categorías iniciales, transferencias/ahorro.

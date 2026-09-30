@@ -1,7 +1,7 @@
-// Genera icons/icon-192.png e icons/icon-512.png (moneda verde con $ sobre fondo oscuro), y el ícono y la pantalla de carga de la app de iPhone.
+// Genera icons/icon-192.png e icons/icon-512.png (moneda verde con $ sobre fondo oscuro).
 // Mismo dibujo que icons/icon.svg, en coordenadas de 512.
 // Uso: node tools/make-icons.mjs
-import { writeFileSync, existsSync } from 'node:fs';
+import { writeFileSync } from 'node:fs';
 import { deflateSync } from 'node:zlib';
 
 const BG = [0x07, 0x0a, 0x0f];
@@ -66,10 +66,9 @@ function chunk(type, data) {
   return Buffer.concat([len, body, crc]);
 }
 
-/** Imagen cuadrada de `size` px con el ícono de `iconPx` px en el centro (el resto, fondo oscuro). */
-function png(size, iconPx = size, SS = 4) {
-  const scale = 512 / iconPx;
-  const off = (size - iconPx) / 2;
+function png(size) {
+  const scale = 512 / size;
+  const SS = 4; // supermuestreo para bordes suaves
   const raw = Buffer.alloc(size * (size * 3 + 1));
   for (let y = 0; y < size; y++) {
     raw[y * (size * 3 + 1)] = 0;
@@ -77,7 +76,7 @@ function png(size, iconPx = size, SS = 4) {
       const sum = [0, 0, 0];
       for (let sy = 0; sy < SS; sy++) {
         for (let sx = 0; sx < SS; sx++) {
-          const c = colorAt((x - off + (sx + 0.5) / SS) * scale, (y - off + (sy + 0.5) / SS) * scale);
+          const c = colorAt((x + (sx + 0.5) / SS) * scale, (y + (sy + 0.5) / SS) * scale);
           for (let i = 0; i < 3; i++) sum[i] += c[i];
         }
       }
@@ -98,17 +97,7 @@ function png(size, iconPx = size, SS = 4) {
   ]);
 }
 
-const write = (path, data) => {
-  writeFileSync(new URL(`../${path}`, import.meta.url), data);
-  console.log(path);
-};
-
-for (const size of [192, 512]) write(`icons/icon-${size}.png`, png(size));
-
-// App de iPhone (Capacitor): ícono de 1024 y pantalla de carga oscura con la moneda.
-const IOS = 'ios/App/App/Assets.xcassets';
-if (existsSync(new URL(`../${IOS}`, import.meta.url))) {
-  write(`${IOS}/AppIcon.appiconset/AppIcon-512@2x.png`, png(1024));
-  const splash = png(2732, 640, 1);
-  for (const n of ['', '-1', '-2']) write(`${IOS}/Splash.imageset/splash-2732x2732${n}.png`, splash);
+for (const size of [192, 512]) {
+  writeFileSync(new URL(`../icons/icon-${size}.png`, import.meta.url), png(size));
+  console.log(`icons/icon-${size}.png`);
 }
