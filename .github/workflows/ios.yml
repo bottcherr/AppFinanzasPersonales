@@ -1,0 +1,53 @@
+# Compila la app de iPhone en una Mac de GitHub y deja el .ipa en Releases (tag "ios").
+# El .ipa sale sin firmar: AltStore lo firma con tu Apple ID al instalarlo.
+name: App de iPhone
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ios
+  cancel-in-progress: true
+
+jobs:
+  ipa:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Instalar Capacitor y copiar la web al proyecto de iOS
+        run: |
+          npm ci
+          npm run sync
+
+      - name: Compilar
+        run: |
+          xcodebuild -project ios/App/App.xcodeproj -scheme App -configuration Release \
+            -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            build | tail -n 40
+          test -d build/Build/Products/Release-iphoneos/App.app
+
+      - name: Armar el .ipa
+        run: |
+          mkdir -p Payload
+          cp -R build/Build/Products/Release-iphoneos/App.app Payload/
+          zip -qry AppFinanzas.ipa Payload
+
+      - name: Publicar en Releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete ios --yes --cleanup-tag || true
+          gh release create ios AppFinanzas.ipa --target "$GITHUB_SHA" --latest \
+            --title "App de iPhone" \
+            --notes "Compilada desde ${GITHUB_SHA::7}. Se instala con AltStore: bajá AppFinanzas.ipa y abrila con AltStore."

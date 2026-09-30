@@ -1,0 +1,19 @@
+{
+  "name": "appfinanzas",
+  "private": true,
+  "version": "1.0.0",
+  "description": "App de finanzas personales. La web no usa dependencias: esto es solo para empaquetarla como app de iPhone con Capacitor.",
+  "type": "module",
+  "scripts": {
+    "build:www": "node tools/build-www.mjs",
+    "sync": "node tools/build-www.mjs && cap sync ios"
+  },
+  "dependencies": {
+    "@capacitor/app": "^8.1.1",
+    "@capacitor/core": "^8.5.2",
+    "@capacitor/ios": "^8.5.2"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^8.5.2"
+  }
+}

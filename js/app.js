@@ -12,6 +12,11 @@ import {
 const root = document.getElementById('app');
 const sheet = document.getElementById('sheet');
 
+// Adentro de la app de iPhone (Capacitor) existe window.Capacitor; en la web, no.
+const Cap = window.Capacitor;
+const isNative = !!Cap?.isNativePlatform?.();
+const SCHEME_URL = 'appfinanzas://rapido?monto=';
+
 let viewMonth = store.currentMonth();
 let draft = null; // movimiento que se está anotando o editando
 let keepDraft = false; // al navegar, usar el draft que ya está armado
@@ -2037,22 +2042,29 @@ function importShortcutFile(text) {
 }
 
 function renderShortcutHelp() {
-  const base = `${location.origin}${location.pathname}`;
-  const url = `${base}#/rapido?monto=`;
+  const url = SCHEME_URL;
   mount(
     `<div class="screen">
       ${topbar(`${icon('bolt')} Gasto rápido`, { back: '/ajustes' })}
       <main class="content prose">
         <p class="muted">Un atajo de iOS te pregunta el monto y qué compraste, y abre la app con la tarjeta lista para guardar.</p>
+        ${
+          isNative
+            ? ''
+            : `<div class="banner">${icon('info')}<span><b>Necesita la app de iPhone</b><small>Un atajo no puede abrir la app agregada a inicio desde Safari: abre Safari, que guarda los datos aparte. Instalá la app con AltStore (ver README) o usá el Plan B.</small></span></div>`
+        }
         <section class="card pad">
-          <div class="sec-head"><h2>Plan A · Abrir la app</h2></div>
+          <div class="sec-head"><h2>Armar el atajo</h2></div>
           <ol class="steps">
             <li>Abrí <b>Atajos</b> → <b>+</b> → nombre: <b>Gasto rápido</b>.</li>
-            <li>Acción <b>Pedir entrada</b> · tipo <b>Número</b> · pregunta “¿Cuánto?”.</li>
-            <li>Acción <b>Pedir entrada</b> · tipo <b>Texto</b> · pregunta “¿Qué compraste?”.</li>
-            <li>Acción <b>Codificar URL</b> sobre el texto (para espacios y tildes).</li>
-            <li>Acción <b>Abrir URL</b> con: <code class="block">${esc(url)}<i>[Cantidad]</i>&amp;desc=<i>[URL codificada]</i></code></li>
-            <li>Centro de Control → editar → <b>Agregar un control</b> → Atajos → <b>Gasto rápido</b>. También sirve el botón de acción o “tocar atrás”.</li>
+            <li><b>Solicitar entrada</b> · <b>Número</b> · pregunta “¿Cuánto?”.</li>
+            <li><b>Establecer variable</b> · nombre <b>Monto</b> · a <b>Solicitar entrada</b>.</li>
+            <li><b>Solicitar entrada</b> · <b>Texto</b> · pregunta “¿Qué compraste?”.</li>
+            <li><b>Codificar URL</b> · Solicitar entrada (para espacios y tildes).</li>
+            <li><b>Texto</b> con: <code class="block">${esc(url)}<i>[Monto]</i>&amp;desc=<i>[Texto codificado de URL]</i></code>
+              Las partes en verde son variables: se insertan desde la barra de arriba del teclado, con el cursor al final.</li>
+            <li><b>Abrir URLs</b> · Texto.</li>
+            <li>Centro de Control → mantener apretado → <b>Agregar un control</b> → Atajos → <b>Gasto rápido</b>. También sirve “tocar atrás” (Accesibilidad → Tocar).</li>
           </ol>
           <p class="muted-sm">Para un ingreso, sumá <code>&amp;tipo=ingreso</code> al final.</p>
           <div class="two">
@@ -2061,14 +2073,10 @@ function renderShortcutHelp() {
           </div>
         </section>
         <section class="card pad">
-          <div class="sec-head"><h2>Prueba 0</h2></div>
-          <p class="muted-sm">En el iPhone, Abrir URL puede abrir <b>Safari</b> en vez de la app instalada, y Safari guarda los datos por separado. Anotá un gasto con el atajo y fijate si aparece en la app instalada. Si no aparece, usá el Plan B.</p>
-        </section>
-        <section class="card pad">
           <div class="sec-head"><h2>Plan B · Archivo</h2></div>
           <ol class="steps">
             <li>En el atajo, después de pedir monto y descripción, usá <b>Agregar a archivo de texto</b> → <code>movimientos.txt</code> en Archivos.</li>
-            <li>Texto de cada línea: <code class="block"><i>[Fecha actual: dd/MM/yyyy HH:mm]</i> <i>[Texto]</i> <i>[Cantidad]</i></code></li>
+            <li>Texto de cada línea: <code class="block"><i>[Fecha actual: dd/MM/yyyy HH:mm]</i> <i>[Texto]</i> <i>[Monto]</i></code></li>
             <li>En la app: Ajustes → <b>Importar del atajo (archivo)</b>. Solo se importa lo nuevo, con vista previa.</li>
           </ol>
         </section>
@@ -2106,7 +2114,32 @@ document.addEventListener('visibilitychange', () => {
   if (!location.hash || location.hash === '#/') route(true);
 });
 
-if ('serviceWorker' in navigator && location.protocol !== 'file:') {
+/**
+ * App de iPhone: el atajo la abre con appfinanzas://rapido?monto=4500&desc=Caf%C3%A9
+ * (o cualquier appfinanzas://<ruta>), y se muestra la misma pantalla que #/rapido?... en la web.
+ */
+let lastLink = '';
+function openDeepLink(url) {
+  if (!url || url === lastLink) return; // al abrir en frío puede llegar dos veces
+  lastLink = url;
+  setTimeout(() => (lastLink = ''), 3000);
+  try {
+    const u = new URL(url);
+    if (u.hash.startsWith('#/')) return navigate(u.hash.slice(1));
+    const path = `${u.host}${u.pathname}`.replace(/^\/+|\/+$/g, '');
+    navigate(`/${path}${u.search}`);
+  } catch {
+    /* link inválido: se ignora */
+  }
+}
+
+if (isNative) {
+  const AppPlugin = Cap.registerPlugin('App');
+  AppPlugin.addListener('appUrlOpen', (e) => openDeepLink(e.url));
+  AppPlugin.getLaunchUrl()
+    .then((r) => openDeepLink(r?.url))
+    .catch(() => {});
+} else if ('serviceWorker' in navigator && location.protocol !== 'file:') {
   navigator.serviceWorker.register('sw.js').catch(() => {});
 }
 

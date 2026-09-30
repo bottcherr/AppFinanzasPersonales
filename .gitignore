@@ -2,3 +2,9 @@
 Thumbs.db
 # Capturas de referencia (video de otra app): quedan solo en la compu
 Idea Flujo App/
+node_modules/
+www/
+ios/App/App/public/
+ios/App/App/capacitor.config.json
+ios/App/App/config.xml
+ios/DerivedData/
