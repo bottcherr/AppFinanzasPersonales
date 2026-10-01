@@ -1677,6 +1677,8 @@ async function exportBackup() {
 }
 
 async function importBackup(text) {
+  // Un backup real pesa unos pocos KB; uno enorme no es de esta app y podría trabar el celular.
+  if (text.length > 5_000_000) return toast('Ese archivo es demasiado grande para ser un backup');
   let data;
   try {
     data = JSON.parse(text);

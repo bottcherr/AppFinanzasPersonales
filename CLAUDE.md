@@ -49,6 +49,15 @@ Datos en `localStorage` (clave `appfinanzas.v1`). Montos como enteros. No hay se
 - **No usar `window.confirm()`**: usar `ask()` de app.js.
 - **Subir `CACHE` en `sw.js` en cada cambio** (`appfinanzas-vN`) y sumar a `FILES` cualquier archivo nuevo.
 - Todo texto del usuario pasa por `esc()` antes de ir al HTML.
+- **Seguridad** (revisada el 01/10/2026):
+  - `normalize()` en store.js reconstruye TODO lo que entra (lo guardado y los backups) campo por campo: ids solo
+    `[A-Za-z0-9_-]`, referencias a categorías/fijos que existan, fechas válidas, enums cerrados. Si se agrega un
+    campo nuevo al modelo, validarlo ahí también (los ids van sin `esc()` en atributos `data-id`).
+  - `occurrenceOnOrAfter()` tiene límite de vueltas: datos inválidos nunca pueden colgar la app.
+  - `index.html` tiene una Content-Security-Policy: solo scripts propios (`script-src 'self'`), sin handlers inline
+    ni recursos de otros sitios. No usar `onclick=` en el HTML ni cargar nada de CDNs: si hace falta una fuente o
+    librería, guardarla en el repo.
+  - Importar backup: máximo 5 MB.
 - Una regla se aprende solo cuando el usuario cambia la categoría a mano (o la corrige al editar).
 - El gráfico de Análisis no depende solo del color (los colores de categoría Comida/Súper se parecen): barra con
   separación entre tramos + lista con nombre, monto y % como leyenda; tocar un tramo lo resalta.

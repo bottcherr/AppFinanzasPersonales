@@ -19,47 +19,113 @@ function emptyState() {
       hideAmounts: false,
       lastBackup: null, // ISO
       backupSnoozeUntil: null, // 'YYYY-MM-DD'
-      lastImport: null, // 'YYYY-MM-DD HH:MM' del último movimiento importado del atajo (Plan B)
       createdAt: todayStr(),
     },
   };
 }
 
+// ---------- Validación ----------
+// Todo lo que entra (lo guardado o un backup importado) se reconstruye campo por campo, solo con
+// valores del tipo esperado. Así un backup manipulado no puede meter código en el HTML (los ids van
+// en atributos data-id) ni colgar la app con fechas o periodicidades imposibles.
+
 const arr = (v) => (Array.isArray(v) ? v : []);
 const isColor = (c) => typeof c === 'string' && /^#[0-9a-f]{6}$/i.test(c);
+const isId = (v) => typeof v === 'string' && /^[A-Za-z0-9_-]{1,40}$/.test(v);
+const isDate = (v) => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v) && !Number.isNaN(Date.parse(v));
+const text = (v, max) => String(v ?? '').slice(0, max);
+const int = (v, min, max) => {
+  const n = Math.round(Number(v));
+  return Number.isFinite(n) && n >= min && n <= max ? n : null;
+};
+const MAX_AMOUNT = 1e13;
 
 /** Completa y limpia datos viejos o importados. */
 function normalize(data) {
   const base = emptyState();
   if (!data || typeof data !== 'object') return base;
-  const cats = Array.isArray(data.categories) ? data.categories : base.categories;
+
+  const seen = new Set();
+  const freshId = (v) => {
+    const id = isId(v) && !seen.has(v) ? v : uid();
+    seen.add(id);
+    return id;
+  };
+
+  const categories = (Array.isArray(data.categories) ? data.categories : base.categories)
+    .filter((c) => c && isId(c.id) && c.name)
+    .map((c) => ({
+      id: freshId(c.id),
+      name: text(c.name, 30),
+      color: isColor(c.color) ? c.color : '#94a3b8',
+      icon: /^[a-z-]{1,20}$/.test(c.icon) ? c.icon : 'dots',
+      type: c.type === 'ingreso' ? 'ingreso' : 'gasto',
+    }));
+  const catIds = new Set(categories.map((c) => c.id));
+  const catRef = (v) => (catIds.has(v) ? v : null);
+
+  const recurring = arr(data.recurring)
+    .filter((f) => f && ['semanal', 'mensual', 'anual'].includes(f.every) && isDate(f.nextDate))
+    .map((f) => {
+      const semanal = f.every === 'semanal';
+      return {
+        id: freshId(f.id),
+        name: text(f.name, 60),
+        type: f.type === 'ingreso' ? 'ingreso' : 'gasto',
+        amount: int(f.amount, 0, MAX_AMOUNT) ?? 0,
+        variable: !!f.variable,
+        categoryId: catRef(f.categoryId),
+        every: f.every,
+        day: int(f.day, semanal ? 0 : 1, semanal ? 6 : 31) ?? 1,
+        month: int(f.month, 1, 12) ?? 1,
+        nextDate: f.nextDate,
+        active: f.active !== false,
+      };
+    });
+  const recIds = new Set(recurring.map((f) => f.id));
+
+  const s = data.settings && typeof data.settings === 'object' ? data.settings : {};
   return {
     version: 1,
     movements: arr(data.movements)
-      .filter((m) => m && Number.isFinite(Number(m.amount)) && /^\d{4}-\d{2}-\d{2}$/.test(m.date))
-      .map((m) => ({
-        ...m,
-        type: m.type === 'ingreso' ? 'ingreso' : 'gasto',
-        amount: Math.round(Number(m.amount)),
-        desc: String(m.desc ?? ''),
-        categoryId: m.categoryId ?? null,
-        tags: arr(m.tags).map(String),
-        source: m.source || 'app',
-      })),
-    categories: cats
-      .filter((c) => c && c.id && c.name)
-      .map((c) => ({
-        id: String(c.id),
-        name: String(c.name),
-        color: isColor(c.color) ? c.color : '#94a3b8',
-        icon: String(c.icon || 'dots'),
-        type: c.type === 'ingreso' ? 'ingreso' : 'gasto',
-      })),
-    rules: arr(data.rules).filter((r) => r && r.pattern && r.categoryId),
-    recurring: arr(data.recurring).filter((f) => f && f.id && f.nextDate),
-    pending: arr(data.pending).filter((p) => p && p.recurringId && p.dueDate),
-    budgets: arr(data.budgets).filter((b) => b && b.categoryId && b.limit > 0),
-    settings: { ...base.settings, ...(data.settings || {}) },
+      .filter((m) => m && isDate(m.date) && int(m.amount, 0, MAX_AMOUNT) !== null)
+      .map((m) => {
+        const out = {
+          id: freshId(m.id),
+          type: m.type === 'ingreso' ? 'ingreso' : 'gasto',
+          amount: int(m.amount, 0, MAX_AMOUNT),
+          date: m.date,
+          desc: text(m.desc, 80),
+          categoryId: catRef(m.categoryId),
+          tags: arr(m.tags).map((t) => text(t, 24)),
+          source: ['app', 'rapido', 'lote', 'fijo'].includes(m.source) ? m.source : 'app',
+          createdAt: typeof m.createdAt === 'string' ? text(m.createdAt, 30) : '',
+        };
+        if (recIds.has(m.recurringId)) out.recurringId = m.recurringId;
+        return out;
+      }),
+    categories,
+    rules: arr(data.rules)
+      .filter((r) => r && typeof r.pattern === 'string' && r.pattern && catIds.has(r.categoryId))
+      .map((r) => ({ id: freshId(r.id), pattern: text(r.pattern, 80), categoryId: r.categoryId, source: 'aprendida' })),
+    recurring,
+    pending: arr(data.pending)
+      .filter((p) => p && recIds.has(p.recurringId) && isDate(p.dueDate))
+      .map((p) => {
+        const out = { id: freshId(p.id), recurringId: p.recurringId, dueDate: p.dueDate, amount: int(p.amount, 1, MAX_AMOUNT) };
+        if (isDate(p.snoozeUntil)) out.snoozeUntil = p.snoozeUntil;
+        return out;
+      }),
+    budgets: arr(data.budgets)
+      .filter((b) => b && catIds.has(b.categoryId) && int(b.limit, 1, MAX_AMOUNT))
+      .map((b) => ({ categoryId: b.categoryId, limit: int(b.limit, 1, MAX_AMOUNT) })),
+    settings: {
+      currency: typeof s.currency === 'string' && s.currency.trim() ? text(s.currency.trim(), 4) : '$',
+      hideAmounts: s.hideAmounts === true,
+      lastBackup: typeof s.lastBackup === 'string' && !Number.isNaN(Date.parse(s.lastBackup)) ? text(s.lastBackup, 30) : null,
+      backupSnoozeUntil: isDate(s.backupSnoozeUntil) ? s.backupSnoozeUntil : null,
+      createdAt: isDate(s.createdAt) ? s.createdAt : base.settings.createdAt,
+    },
   };
 }
 

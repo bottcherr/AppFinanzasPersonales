@@ -125,23 +125,26 @@ export function fmtDay(s) {
 export function occurrenceOnOrAfter(f, s) {
   const d = parseDate(s);
   if (f.every === 'semanal') {
-    d.setDate(d.getDate() + ((f.day - d.getDay() + 7) % 7));
+    d.setDate(d.getDate() + ((((Number(f.day) || 0) - d.getDay()) % 7 + 7) % 7));
     return dateStr(d);
   }
+  // Con límite de vueltas: un día o mes inválido nunca puede colgar la app.
   if (f.every === 'anual') {
-    for (let y = d.getFullYear(); ; y++) {
+    for (let y = d.getFullYear(); y < d.getFullYear() + 5; y++) {
       const dim = new Date(y, f.month, 0).getDate();
       const c = new Date(y, f.month - 1, Math.min(f.day, dim));
       if (c >= d) return dateStr(c);
     }
+    return addDays(s, 365);
   }
-  for (let i = 0; ; i++) {
+  for (let i = 0; i < 24; i++) {
     const y = d.getFullYear();
     const m = d.getMonth() + i;
     const dim = new Date(y, m + 1, 0).getDate();
     const c = new Date(y, m, Math.min(f.day, dim));
     if (c >= d) return dateStr(c);
   }
+  return addDays(s, 31);
 }
 
 export function fmtEvery(f) {
