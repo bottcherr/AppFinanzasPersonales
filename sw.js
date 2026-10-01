@@ -1,6 +1,6 @@
 // Service worker: guarda los archivos de la app para que abra sin conexión.
 // Al cambiar cualquier archivo de la app, subir la versión para que se actualice.
-const CACHE = 'appfinanzas-v2';
+const CACHE = 'appfinanzas-v4';
 
 const FILES = [
   './',
@@ -16,7 +16,7 @@ const FILES = [
   './icons/icon.svg',
   './icons/icon-192.png',
   './icons/icon-512.png',
-  './fonts/ranade-700.woff2',
+  './fonts/outfit-700.woff2',
 ];
 
 self.addEventListener('install', (event) => {

@@ -2,7 +2,7 @@
 import * as store from './store.js';
 import { state } from './store.js';
 import { icon } from './icons.js';
-import { COLORS, CATEGORY_ICONS, UNCLASSIFIED } from './data.js';
+import { COLORS, UNCLASSIFIED } from './data.js';
 import { suggestCategory, parseBatch } from './rules.js';
 import {
   esc, normalizeText, parseAmount, fmtNumber, todayStr, addDays, parseDate, monthOf, addMonths,
@@ -17,8 +17,7 @@ let draft = null; // movimiento que se está anotando o editando
 let keepDraft = false; // al navegar, usar el draft que ya está armado
 let batch = null; // carga en lote: { text, items?, errors?, source, importMark? }
 let fdraft = null; // fijo que se está editando
-let histFilter = { q: '', cat: '', tag: '' };
-let catTab = 'gasto';
+let histFilter = { q: '', cat: '' };
 let currentHash = null;
 let depth = 0; // cuántas pantallas se apilaron con navigate() (para el botón atrás)
 let actions = {};
@@ -168,14 +167,8 @@ function route(soft = false) {
       return renderRecurringForm(b);
     case 'pendientes':
       return renderPending();
-    case 'categorias':
-      return renderCategories();
     case 'sin-clasificar':
       return renderUnclassified();
-    case 'reglas':
-      return renderRules();
-    case 'atajo':
-      return renderShortcutHelp();
     default:
       return navigate('/', { replace: true });
   }
@@ -186,7 +179,7 @@ function route(soft = false) {
 function tabbar(active) {
   const tabs = [
     ['/', 'home', 'Inicio'],
-    ['/movimientos', 'list', 'Movimientos'],
+    ['/movimientos', 'list', 'Gastos'],
     ['/analisis', 'chart', 'Análisis'],
     ['/ajustes', 'sliders', 'Ajustes'],
   ];
@@ -221,7 +214,6 @@ function topbar(title, { back = '/', right = '' } = {}) {
 function movRow(m) {
   const c = catOf(m.categoryId);
   const meta = [`<span class="${m.categoryId ? '' : 'warn-text'}">${esc(c.name)}</span>`];
-  for (const t of m.tags || []) meta.push(`<span class="tag">#${esc(t)}</span>`);
   if (m.source === 'fijo') meta.push('<span class="badge">Fijo</span>');
   return `<button class="mov" data-action="open-mov" data-id="${m.id}">
     ${catIcon(c)}
@@ -503,40 +495,23 @@ function pickCategory(type, selected, suggested = null) {
 
 // ---------- Inicio ----------
 
-function safeToSpend(ym) {
-  const dim = daysInMonth(ym);
-  const left = dim - Number(todayStr().slice(8)) + 1;
-  let amount;
-  let basis;
-  if (state.budgets.length) {
-    const spent = store.spentByCategory(ym);
-    amount = state.budgets.reduce((s, b) => s + Math.max(0, b.limit - (spent.get(b.categoryId) || 0)), 0);
-    basis = 'Lo que queda de tus presupuestos';
-  } else {
-    amount = Math.max(0, store.totalsOf(ym).balance);
-    basis = 'Tu balance del mes';
-  }
-  return { amount, perDay: amount / left, left, basis };
-}
-
 function renderHome() {
   const ym = viewMonth;
   const isCurrent = ym === store.currentMonth();
-  const t = store.totalsOf(ym);
-  const list = store.movementsOf(ym);
+  const gastos = store.movementsOf(ym).filter((m) => m.type === 'gasto');
+  const total = gastos.reduce((s, m) => s + m.amount, 0);
   const pending = store.duePending();
   const backupDays = store.backupReminderDays();
-  const budgets = budgetRows(ym);
-  const over = budgets.filter((b) => b.pct > 1);
-  const unclassified = list.filter((m) => !m.categoryId).length;
-  const avail = t.ingresos > 0 ? Math.max(0, t.balance / t.ingresos) : 0;
+  const over = budgetRows(ym).filter((b) => b.pct > 1);
+  const unclassified = gastos.filter((m) => !m.categoryId).length;
   const hide = state.settings.hideAmounts;
-  const safe = isCurrent ? safeToSpend(ym) : null;
+  const monthName = fmtMonth(ym).split(' ')[0];
 
+  // Avisos: solo aparecen cuando hay algo para hacer.
   const banners = [];
   if (pending.length)
     banners.push(`<button class="banner accent" data-action="to" data-to="/pendientes">${icon('inbox')}
-      <span><b>Para confirmar (${pending.length})</b><small>Movimientos fijos vencidos</small></span>${icon('chev-right')}</button>`);
+      <span><b>Para confirmar (${pending.length})</b><small>Gastos fijos vencidos</small></span>${icon('chev-right')}</button>`);
   if (over.length)
     banners.push(`<button class="banner danger" data-action="to" data-to="/analisis">${icon('alert')}
       <span><b>Te pasaste en ${esc(over.map((b) => b.c.name).join(', '))}</b><small>${over
@@ -544,27 +519,12 @@ function renderHome() {
         .join(' · ')}</small></span>${icon('chev-right')}</button>`);
   if (unclassified)
     banners.push(`<button class="banner" data-action="to" data-to="/sin-clasificar">${icon('help')}
-      <span><b>${unclassified} sin clasificar</b><small>Tocá para asignarles categoría</small></span>${icon('chev-right')}</button>`);
+      <span><b>${unclassified} sin categoría</b><small>Tocá para asignarles una</small></span>${icon('chev-right')}</button>`);
   if (backupDays)
     banners.push(`<div class="banner">${icon('download')}
       <span><b>Hace ${backupDays} días que no hacés backup</b><small>Los datos viven solo en este celular</small></span>
       <button class="btn sm" data-action="backup-now">Exportar</button>
       <button class="btn sm ghost" data-action="backup-later">Luego</button></div>`);
-
-  const budgetSection = budgets.length
-    ? `<section class="card pad">
-        <div class="sec-head"><h2>Presupuestos</h2><button class="link" data-action="to" data-to="/analisis">Ver todo</button></div>
-        ${budgets
-          .slice(0, 5)
-          .map(
-            (b) => `<div class="hb-row">${catIcon(b.c, 'sm')}<div class="hb-main">
-              <div class="hb-top"><span>${esc(b.c.name)}</span><span>${money(b.spent)} <small>/ ${money(b.limit)}</small></span></div>
-              ${bar(b.pct)}</div></div>`,
-          )
-          .join('')}
-      </section>`
-    : `<button class="card pad hint-card" data-action="to" data-to="/analisis">${icon('pie')}
-        <span><b>Poné un límite por categoría</b><small>Así la app te avisa si te estás pasando</small></span>${icon('chev-right')}</button>`;
 
   mount(
     `<div class="screen">
@@ -577,34 +537,19 @@ function renderHome() {
       </header>
       <main class="content">
         ${banners.join('')}
-        <section class="balance">
-          <div class="bal-label">Balance del mes</div>
-          <div class="bal-amount">${money(t.balance, t.balance < 0 ? '-' : '')}</div>
-          <div class="bal-row"><span>DISPONIBLE</span><span>${t.ingresos ? pctText(avail) : '—'}</span></div>
-          <div class="bal-bar"><i style="width:${(avail * 100).toFixed(1)}%"></i></div>
-          <div class="bal-tiles">
-            <div class="bal-tile"><small>${icon('arrow-up')} INGRESOS</small><b>${money(t.ingresos, '+')}</b></div>
-            <div class="bal-tile"><small>${icon('arrow-down')} GASTOS</small><b>${money(t.gastos, '-')}</b></div>
-          </div>
+        <section class="spent">
+          <div class="spent-label">Gastaste en ${esc(monthName)}</div>
+          <div class="spent-amount">${money(total)}</div>
+          <small>${gastos.length} ${gastos.length === 1 ? 'gasto' : 'gastos'}</small>
         </section>
-        ${
-          safe
-            ? `<section class="card pad safe">
-                <div class="safe-head">${icon('card')}<span>Seguro para gastar</span></div>
-                <div class="safe-amount">${money(safe.amount)}</div>
-                <small>${money(safe.perDay)} / día · ${safe.left} ${safe.left === 1 ? 'día restante' : 'días restantes'} · ${safe.basis}</small>
-              </section>`
-            : ''
-        }
-        ${budgetSection}
         <div class="row-links">
-          <button class="link" data-action="to" data-to="/movimientos">Ver historial completo ${icon('chev-right')}</button>
-          <button class="pill" data-action="to" data-to="/lote">${icon('sparkles')} Carga en lote</button>
+          <h2 class="sec-title">Últimos gastos</h2>
+          <button class="link" data-action="to" data-to="/movimientos">Ver todos ${icon('chev-right')}</button>
         </div>
         ${
-          list.length
-            ? movementList(list.slice(0, 20))
-            : `<div class="empty">${icon('inbox')}<p>${isCurrent ? 'Todavía no anotaste nada este mes.' : 'Sin movimientos este mes.'}</p><small>Tocá <b>Anotar</b> para empezar.</small></div>`
+          gastos.length
+            ? movementList(gastos.slice(0, 15))
+            : `<div class="empty">${icon('inbox')}<p>${isCurrent ? 'Todavía no anotaste nada este mes.' : 'Sin gastos este mes.'}</p><small>Tocá <b>Anotar</b> para empezar.</small></div>`
         }
       </main>
       ${fab(true)}
@@ -620,38 +565,37 @@ function renderHome() {
   );
 }
 
-// ---------- Anotar: pasos (monto → descripción → categoría) y formulario ----------
+// ---------- Anotar: una sola pantalla (monto → categoría → Guardar) ----------
 
 function newDraft(o = {}) {
   return {
-    step: 1, type: 'gasto', amount: 0, desc: '', categoryId: null, catManual: false, origCategoryId: null,
-    date: todayStr(), tags: [], source: 'app', editId: null, recurringId: null, recurring: null,
-    addAnother: false, query: '', fromSteps: false, ...o,
+    type: 'gasto', amount: 0, desc: '', categoryId: null, catManual: false, origCategoryId: null,
+    date: todayStr(), source: 'app', editId: null, recurringId: null, recurring: null, ...o,
   };
 }
 
 function openNew(params, source) {
-  if (!keepDraft || !draft) draft = newDraft({ type: params.get('tipo') === 'ingreso' ? 'ingreso' : 'gasto', source });
+  if (!keepDraft || !draft) draft = newDraft({ source });
   keepDraft = false;
-  renderDraft();
+  draftForm();
 }
 
-/** Monto que llega por URL desde el atajo: "4500", "4.500" o "4500.5" (punto decimal). */
+/** Monto que llega por URL: "4500", "4.500" o "4500.5" (punto decimal). */
 function urlAmount(raw) {
   const s = String(raw || '').trim();
   return /^\d+\.\d{1,2}$/.test(s) ? Math.round(Number(s)) : parseAmount(s);
 }
 
+/** #/rapido?monto=4500&desc=Café muestra la tarjeta de gasto rápido; sin monto, la pantalla de anotar. */
 function openRapido(params) {
   const amount = urlAmount(params.get('monto'));
   if (amount > 0) {
-    const type = params.get('tipo') === 'ingreso' ? 'ingreso' : 'gasto';
     const desc = (params.get('desc') || '').trim().slice(0, 80);
     // Se saca el monto de la URL para que al recargar no aparezca de nuevo.
     history.replaceState(null, '', '#/');
     currentHash = location.hash;
     renderHome();
-    showQuickCard(newDraft({ type, amount, desc, source: 'rapido', categoryId: suggestCategory(desc, type, state) }));
+    showQuickCard(newDraft({ amount, desc, source: 'rapido', categoryId: suggestCategory(desc, 'gasto', state) }));
     return;
   }
   openNew(params, 'rapido');
@@ -661,170 +605,10 @@ function openEdit(id) {
   const m = store.getMovement(id);
   if (!m) return navigate('/movimientos', { replace: true });
   draft = newDraft({
-    step: 4, editId: m.id, type: m.type, amount: m.amount, desc: m.desc, categoryId: m.categoryId,
-    origCategoryId: m.categoryId, catManual: true, date: m.date, tags: [...(m.tags || [])], source: m.source,
-    recurringId: m.recurringId || null,
+    editId: m.id, type: m.type, amount: m.amount, desc: m.desc, categoryId: m.categoryId,
+    origCategoryId: m.categoryId, catManual: true, date: m.date, source: m.source, recurringId: m.recurringId || null,
   });
-  renderDraft();
-}
-
-function renderDraft() {
-  if (draft.step === 1) return stepAmount();
-  if (draft.step === 2) return stepDesc();
-  if (draft.step === 3) return stepCategory();
-  return draftForm();
-}
-
-const noun = () => (draft.type === 'ingreso' ? 'ingreso' : 'gasto');
-
-function stepHeader() {
-  const dots = [1, 2, 3].map((i) => `<i class="${i === draft.step ? 'on' : ''}"></i>`).join('');
-  return `<header class="step-top">
-    <button type="button" class="icon-btn" data-action="step-back" aria-label="Atrás" ${draft.step === 1 ? 'style="visibility:hidden"' : ''}>${icon('chev-left')}</button>
-    <div class="dots">${dots}</div>
-    <button type="button" class="icon-btn" data-action="close-draft" aria-label="Cerrar">${icon('x')}</button>
-  </header>`;
-}
-
-const stepActions = {
-  'step-back': () => {
-    draft.step--;
-    renderDraft();
-  },
-  'close-draft': () => {
-    draft = null;
-    goBack('/');
-  },
-};
-
-function stepAmount() {
-  const seg = (t, label) =>
-    `<button type="button" class="seg-btn${draft.type === t ? ' on' : ''}" data-action="set-type" data-type="${t}">${label}</button>`;
-  mount(
-    `<form class="step">
-      ${stepHeader()}
-      <div class="seg center">${seg('gasto', 'Gasto')}${seg('ingreso', 'Ingreso')}</div>
-      <h1 class="step-title">¿Cuánto?</h1>
-      <p class="step-sub">Escribí el monto del ${noun()}</p>
-      <label class="amount-box"><span>${esc(cur())}</span>
-        <input id="amount" inputmode="numeric" autocomplete="off" enterkeyhint="next" placeholder="0" value="${draft.amount ? fmtNumber(draft.amount) : ''}"></label>
-      <div class="step-actions"><button class="btn primary" type="submit" id="next" ${draft.amount > 0 ? '' : 'disabled'}>Continuar</button></div>
-    </form>`,
-    {
-      ...stepActions,
-      'set-type': (el) => {
-        if (draft.type === el.dataset.type) return;
-        draft.type = el.dataset.type;
-        draft.categoryId = null;
-        draft.catManual = false;
-        stepAmount();
-      },
-    },
-    {
-      input: (e) => {
-        if (e.target.id !== 'amount') return;
-        draft.amount = formatAmountInput(e.target);
-        root.querySelector('#next').disabled = !(draft.amount > 0);
-      },
-      submit: (e) => {
-        e.preventDefault();
-        if (!(draft.amount > 0)) return;
-        draft.step = 2;
-        renderDraft();
-      },
-    },
-  );
-  focusEnd('#amount');
-}
-
-function suggestionLine() {
-  const id = suggestCategory(draft.desc, draft.type, state);
-  if (!id) return draft.desc.trim() ? '<span class="muted-sm">Sin categoría sugerida: la elegís en el paso siguiente.</span>' : '';
-  return `<span class="muted-sm">Categoría sugerida</span> ${catChip(catOf(id), id)}`;
-}
-
-function stepDesc() {
-  const next = () => {
-    if (!draft.catManual) draft.categoryId = suggestCategory(draft.desc, draft.type, state);
-    draft.step = 3;
-    draft.query = '';
-    renderDraft();
-  };
-  mount(
-    `<form class="step">
-      ${stepHeader()}
-      <h1 class="step-title">Describí el ${noun()}</h1>
-      <p class="step-sub">${money(draft.amount, draft.type === 'ingreso' ? '+' : '-')}</p>
-      <input class="big-input" id="desc" autocomplete="off" autocapitalize="sentences" enterkeyhint="next"
-        placeholder="Ej: Café, Uber, Netflix" maxlength="80" value="${esc(draft.desc)}">
-      <div class="suggest-line" id="sline">${suggestionLine()}</div>
-      <div class="step-actions">
-        <button class="btn primary" type="submit">Continuar</button>
-        <button type="button" class="btn link" data-action="skip-desc">Omitir descripción</button>
-      </div>
-    </form>`,
-    {
-      ...stepActions,
-      'skip-desc': () => {
-        draft.desc = '';
-        next();
-      },
-      'pick-cat': () => next(),
-    },
-    {
-      input: (e) => {
-        if (e.target.id !== 'desc') return;
-        draft.desc = e.target.value;
-        root.querySelector('#sline').innerHTML = suggestionLine();
-      },
-      submit: (e) => {
-        e.preventDefault();
-        next();
-      },
-    },
-  );
-  focusEnd('#desc');
-}
-
-function stepCategory() {
-  const suggested = suggestCategory(draft.desc, draft.type, state);
-  const toForm = () => {
-    draft.step = 4;
-    draft.fromSteps = true;
-    renderDraft();
-  };
-  mount(
-    `<div class="step">
-      ${stepHeader()}
-      <h1 class="step-title">¿En qué categoría?</h1>
-      <label class="search">${icon('search')}<input id="catq" placeholder="Buscar categoría" autocomplete="off" value="${esc(draft.query)}"></label>
-      <div id="catlist" class="picker">${categoryPicker(draft.type, draft.categoryId, draft.query, suggested)}</div>
-      <div class="step-actions sticky"><button class="btn primary" data-action="cat-continue">${draft.categoryId ? 'Continuar' : 'Continuar sin categoría'}</button></div>
-    </div>`,
-    {
-      ...stepActions,
-      'pick-cat': (el) => {
-        draft.categoryId = el.dataset.id;
-        draft.catManual = el.dataset.id !== suggested;
-        toForm();
-      },
-      'cat-new': async () => {
-        const c = await createCategoryQuick(draft.type, draft.query);
-        if (!c) return;
-        draft.categoryId = c.id;
-        draft.catManual = true;
-        toForm();
-      },
-      'cat-continue': toForm,
-    },
-    {
-      input: (e) => {
-        if (e.target.id !== 'catq') return;
-        draft.query = e.target.value;
-        root.querySelector('#catlist').innerHTML = categoryPicker(draft.type, draft.categoryId, draft.query, suggested);
-      },
-    },
-  );
+  draftForm();
 }
 
 function recFromDraft() {
@@ -845,114 +629,84 @@ function recurringPanel() {
   </div>`;
 }
 
-function catRowHTML() {
-  const c = catOf(draft.categoryId);
-  return `<span class="field-label">Categoría</span>
-    <span class="field-val">${catIcon(c, 'sm')}<b class="${draft.categoryId ? '' : 'warn-text'}">${esc(c.name)}</b></span>${icon('chev-right')}`;
+/** Grilla de categorías como botones: un toque elige. */
+function catGridHTML() {
+  return `${store
+    .categoriesOf(draft.type)
+    .map(
+      (c) => `<button type="button" class="cat-tile${c.id === draft.categoryId ? ' on' : ''}" data-action="f-cat" data-id="${c.id}">
+        ${catIcon(c)}<span>${esc(c.name)}</span></button>`,
+    )
+    .join('')}
+    <button type="button" class="cat-tile add" data-action="f-cat-new">${icon('plus')}<span>Nueva</span></button>`;
 }
 
-function draftBudgetHTML() {
-  if (draft.type !== 'gasto') return '';
-  return budgetBox(draft.categoryId, monthOf(draft.date), draft.amount, draft.editId);
-}
-
-function tagsHTML() {
-  return draft.tags
-    .map((t, i) => `<button type="button" class="tag-chip" data-action="rm-tag" data-i="${i}">#${esc(t)} ${icon('x')}</button>`)
-    .join('');
+/** Una línea con lo que queda del límite de la categoría elegida. */
+function budgetHint() {
+  if (draft.type !== 'gasto' || !draft.categoryId) return '';
+  const st = store.budgetStatus(draft.categoryId, monthOf(draft.date), draft.amount, draft.editId);
+  if (!st) return '';
+  const name = esc(catOf(draft.categoryId).name);
+  return st.remaining >= 0
+    ? `<span class="t-${tone(st.pct)}">${name}: te quedan ${money(st.remaining)} este mes</span>`
+    : `<span class="t-over">${name}: te pasás por ${money(-st.remaining)}</span>`;
 }
 
 function draftForm() {
   const d = draft;
   const isEdit = !!d.editId;
-  const title = isEdit ? 'Editar movimiento' : d.type === 'ingreso' ? 'Nuevo ingreso' : 'Nuevo gasto';
   const fijo = d.recurringId && store.getRecurring(d.recurringId);
-  const seg = (t, label) =>
-    `<button type="button" class="seg-btn${d.type === t ? ' on' : ''}" data-action="f-type" data-type="${t}">${label}</button>`;
-
-  const updateBits = () => {
-    root.querySelector('#f-catrow').innerHTML = catRowHTML();
-    root.querySelector('#f-budget').innerHTML = draftBudgetHTML();
-  };
-  const addTag = (input) => {
-    const t = input.value.replace(/[#,]/g, '').trim().slice(0, 24);
-    input.value = '';
-    if (!t || d.tags.includes(t)) return;
-    d.tags.push(t);
-    root.querySelector('#f-tags-list').innerHTML = tagsHTML();
+  const dateLabel = () => (d.date === todayStr() ? 'Hoy' : fmtDateLong(d.date));
+  const refresh = () => {
+    root.querySelector('#f-cats').innerHTML = catGridHTML();
+    root.querySelector('#f-hint').innerHTML = budgetHint();
   };
 
   mount(
-    `<div class="screen form-screen">
+    `<div class="screen form-screen quick-form">
       <header class="topbar">
-        <button class="icon-btn" data-action="form-back" aria-label="Atrás">${icon('chev-left')}</button>
-        <h1 class="topbar-title">${title}</h1>
+        <button class="icon-btn" data-action="form-close" aria-label="Cerrar">${icon(isEdit ? 'chev-left' : 'x')}</button>
+        <h1 class="topbar-title center">${isEdit ? 'Editar gasto' : 'Nuevo gasto'}</h1>
         <div class="topbar-right">${isEdit ? `<button class="icon-btn danger" data-action="delete-mov" aria-label="Borrar">${icon('trash')}</button>` : ''}</div>
       </header>
       <div class="content">
-        <div class="seg center">${seg('gasto', 'Gasto')}${seg('ingreso', 'Ingreso')}</div>
         <label class="hero-amount ${d.type}"><span>${esc(cur())}</span>
-          <input id="f-amount" inputmode="numeric" autocomplete="off" value="${d.amount ? fmtNumber(d.amount) : ''}" placeholder="0"></label>
-        <label class="date-chip">${icon('calendar')}<span id="f-date-label">${fmtDateLong(d.date)}</span>${icon('chev-down')}
+          <input id="f-amount" inputmode="numeric" autocomplete="off" value="${d.amount ? fmtNumber(d.amount) : ''}" placeholder="0" aria-label="Monto"></label>
+        <label class="date-chip">${icon('calendar')}<span id="f-date-label">${dateLabel()}</span>${icon('chev-down')}
           <input type="date" id="f-date" value="${d.date}" aria-label="Fecha"></label>
-        <div class="field">
-          <label for="f-desc" class="field-label">Descripción <em>(opcional)</em></label>
-          <input id="f-desc" autocomplete="off" autocapitalize="sentences" maxlength="80" value="${esc(d.desc)}" placeholder="Ej: Café">
-        </div>
-        <button class="field-row" id="f-catrow" data-action="form-cat">${catRowHTML()}</button>
-        <div id="f-budget">${draftBudgetHTML()}</div>
-        <div class="field">
-          <span class="field-label">Etiquetas <em>(opcional)</em></span>
-          <div class="tags-edit"><span id="f-tags-list">${tagsHTML()}</span>
-            <input id="f-tag" placeholder="+ etiqueta" list="taglist" autocomplete="off" enterkeyhint="done" maxlength="24"></div>
-          <datalist id="taglist">${store.allTags().map((t) => `<option value="${esc(t)}">`).join('')}</datalist>
-        </div>
+        <div class="cat-grid" id="f-cats">${catGridHTML()}</div>
+        <input id="f-desc" class="desc-input" autocomplete="off" autocapitalize="sentences" maxlength="80"
+          value="${esc(d.desc)}" placeholder="Descripción (opcional)" aria-label="Descripción">
         ${
           fijo
             ? `<p class="note">${icon('repeat')} Viene del fijo “${esc(fijo.name)}”</p>`
             : isEdit
               ? ''
-              : `<button class="pill-btn${d.recurring ? ' on' : ''}" data-action="toggle-rec">${icon('repeat')} Hacer recurrente</button>
+              : `<button class="pill-btn${d.recurring ? ' on' : ''}" data-action="toggle-rec">${icon('repeat')} Se repite</button>
                  <div id="f-rec">${recurringPanel()}</div>`
         }
       </div>
       <div class="form-foot">
-        ${
-          isEdit
-            ? ''
-            : `<label class="switch-row"><span>Guardar y agregar otro</span>
-                <input type="checkbox" id="f-another" ${d.addAnother ? 'checked' : ''}><i class="switch" aria-hidden="true"></i></label>`
-        }
+        <p class="foot-hint" id="f-hint">${budgetHint()}</p>
         <button class="btn primary" data-action="save-draft">Guardar</button>
       </div>
     </div>`,
     {
-      'form-back': () => {
-        if (d.editId) return goBack('/movimientos');
-        if (d.fromSteps) {
-          d.step = 3;
-          return renderDraft();
-        }
+      'form-close': () => {
         draft = null;
-        goBack('/');
+        goBack(isEdit ? '/movimientos' : '/');
       },
-      'f-type': (el) => {
-        if (d.type === el.dataset.type) return;
-        d.type = el.dataset.type;
-        d.categoryId = suggestCategory(d.desc, d.type, state);
-        d.catManual = false;
-        draftForm();
-      },
-      'form-cat': async () => {
-        const id = await pickCategory(d.type, d.categoryId, suggestCategory(d.desc, d.type, state));
-        if (id === undefined) return;
-        d.categoryId = id;
+      'f-cat': (el) => {
+        d.categoryId = el.dataset.id;
         d.catManual = true;
-        updateBits();
+        refresh();
       },
-      'rm-tag': (el) => {
-        d.tags.splice(Number(el.dataset.i), 1);
-        root.querySelector('#f-tags-list').innerHTML = tagsHTML();
+      'f-cat-new': async () => {
+        const c = await createCategoryQuick(d.type);
+        if (!c) return;
+        d.categoryId = c.id;
+        d.catManual = true;
+        refresh();
       },
       'toggle-rec': (el) => {
         d.recurring = d.recurring ? null : { every: 'mensual', variable: false };
@@ -964,11 +718,11 @@ function draftForm() {
         root.querySelector('#f-rec').innerHTML = recurringPanel();
       },
       'delete-mov': async () => {
-        if (!(await ask('¿Borrar este movimiento?', { ok: 'Borrar', danger: true }))) return;
+        if (!(await ask('¿Borrar este gasto?', { ok: 'Borrar', danger: true }))) return;
         store.deleteMovement(d.editId);
         checkSave();
         draft = null;
-        toast('Movimiento borrado');
+        toast('Gasto borrado');
         goBack('/movimientos');
       },
       'save-draft': saveDraft,
@@ -978,31 +732,27 @@ function draftForm() {
         const id = e.target.id;
         if (id === 'f-amount') {
           d.amount = formatAmountInput(e.target);
-          root.querySelector('#f-budget').innerHTML = draftBudgetHTML();
+          root.querySelector('#f-hint').innerHTML = budgetHint();
         } else if (id === 'f-desc') {
           d.desc = e.target.value;
+          // Mientras no se toque una categoría a mano, la elige la descripción.
           if (!d.catManual) {
             d.categoryId = suggestCategory(d.desc, d.type, state);
-            updateBits();
+            refresh();
           }
-        } else if (id === 'f-tag' && /,$/.test(e.target.value)) addTag(e.target);
+        }
       },
       change: (e) => {
         const id = e.target.id;
         if (id === 'f-date' && e.target.value) {
           d.date = e.target.value;
-          root.querySelector('#f-date-label').textContent = fmtDateLong(d.date);
-          root.querySelector('#f-budget').innerHTML = draftBudgetHTML();
+          root.querySelector('#f-date-label').textContent = dateLabel();
+          root.querySelector('#f-hint').innerHTML = budgetHint();
           if (d.recurring) root.querySelector('#f-rec').innerHTML = recurringPanel();
-        } else if (id === 'f-another') d.addAnother = e.target.checked;
-        else if (id === 'f-variable') d.recurring.variable = e.target.checked;
-        else if (id === 'f-tag') addTag(e.target);
+        } else if (id === 'f-variable') d.recurring.variable = e.target.checked;
       },
       keydown: (e) => {
-        if (e.target.id === 'f-tag' && e.key === 'Enter') {
-          e.preventDefault();
-          addTag(e.target);
-        } else if (e.key === 'Enter' && (e.target.id === 'f-amount' || e.target.id === 'f-desc')) {
+        if (e.key === 'Enter' && (e.target.id === 'f-amount' || e.target.id === 'f-desc')) {
           e.preventDefault();
           e.target.blur();
         }
@@ -1014,11 +764,6 @@ function draftForm() {
 
 function saveDraft() {
   const d = draft;
-  const tagInput = root.querySelector('#f-tag');
-  if (tagInput && tagInput.value.trim()) {
-    const t = tagInput.value.replace(/[#,]/g, '').trim();
-    if (t && !d.tags.includes(t)) d.tags.push(t);
-  }
   if (!(d.amount > 0)) {
     toast('Falta el monto');
     return focusEnd('#f-amount');
@@ -1027,7 +772,7 @@ function saveDraft() {
   const changed = d.editId ? d.categoryId !== d.origCategoryId : d.catManual;
   if (changed && desc && d.categoryId && d.categoryId !== suggestCategory(desc, d.type, state)) store.learnRule(desc, d.categoryId);
 
-  const data = { type: d.type, amount: d.amount, date: d.date, desc, categoryId: d.categoryId, tags: d.tags };
+  const data = { type: d.type, amount: d.amount, date: d.date, desc, categoryId: d.categoryId };
   let m;
   if (d.editId) {
     store.updateMovement(d.editId, data);
@@ -1036,7 +781,7 @@ function saveDraft() {
     if (d.recurring) {
       const f = store.addRecurring(
         {
-          name: desc || catOf(d.categoryId).name, type: d.type, amount: d.amount, variable: d.recurring.variable,
+          name: desc || catOf(d.categoryId).name, type: 'gasto', amount: d.amount, variable: d.recurring.variable,
           categoryId: d.categoryId, ...recFromDraft(),
         },
         addDays(d.date, 1),
@@ -1046,59 +791,23 @@ function saveDraft() {
     m = store.addMovement({ ...data, source: d.source });
   }
   checkSave();
-  const alert = budgetAlert(m);
-  celebrate(d.editId ? 'Guardado' : d.type === 'ingreso' ? '¡Ingreso anotado!' : '¡Gasto anotado!', alert);
-
-  if (d.editId) {
-    draft = null;
-    return goBack('/movimientos');
-  }
-  if (d.addAnother) {
-    draft = newDraft({ type: d.type, source: d.source, addAnother: true });
-    return renderDraft();
-  }
+  celebrate(d.editId ? 'Guardado' : '¡Gasto anotado!', budgetAlert(m));
   draft = null;
-  if (d.source === 'rapido') return renderRapidoDone(m);
-  goBack('/');
+  goBack(d.editId ? '/movimientos' : '/');
 }
 
-/** Después de anotar desde el atajo: confirmación y listo para volver a lo que se estaba haciendo. */
-function renderRapidoDone(m) {
-  const c = catOf(m.categoryId);
-  mount(
-    `<div class="step done-screen">
-      <div class="done-ico">${icon('check')}</div>
-      <h1 class="step-title">Listo, anotado</h1>
-      <p class="done-amt ${m.type}">${signed(m)}</p>
-      <p class="muted">${esc(m.desc || c.name)} · ${esc(c.name)}</p>
-      ${m.type === 'gasto' ? budgetBox(m.categoryId, monthOf(m.date)) : ''}
-      <p class="muted-sm center">Ya podés volver a lo que estabas haciendo.</p>
-      <div class="step-actions">
-        <button class="btn primary" data-action="again">Anotar otro</button>
-        <button class="btn secondary" data-action="tab" data-to="/">Ir al inicio</button>
-      </div>
-    </div>`,
-    {
-      again: () => {
-        draft = newDraft({ source: 'rapido' });
-        renderDraft();
-      },
-    },
-  );
-}
-
-/** Tarjeta de "Gasto rápido" cuando el atajo abre la app con monto y descripción. */
+/** Tarjeta de "Gasto rápido" cuando se abre #/rapido?monto=...&desc=... */
 function showQuickCard(d) {
   const c = catOf(d.categoryId);
   sheet.className = 'sheet center';
   sheet.innerHTML = `<div class="qcard" tabindex="-1" autofocus>
-    <div class="q-head"><span>${icon('bolt')} ${d.type === 'ingreso' ? 'INGRESO' : 'GASTO'} RÁPIDO</span>
+    <div class="q-head"><span>${icon('bolt')} GASTO RÁPIDO</span>
       <button class="icon-btn sm" data-q="close" aria-label="Cerrar">${icon('x')}</button></div>
     <button class="q-cat" data-q="cat">${catIcon(c)}
       <span><b>${esc(d.desc || c.name)}</b><small class="${d.categoryId ? '' : 'warn-text'}">${esc(c.name)} ›</small></span>${icon('edit')}</button>
-    <div class="q-amount ${d.type}">${d.type === 'ingreso' ? '+' : '-'}${esc(cur())} ${fmtNumber(d.amount)}</div>
-    ${d.type === 'gasto' ? budgetBox(d.categoryId, monthOf(d.date), d.amount) : ''}
-    <button class="btn primary" data-q="save">Agregar ${d.type}</button>
+    <div class="q-amount">-${esc(cur())} ${fmtNumber(d.amount)}</div>
+    ${budgetBox(d.categoryId, monthOf(d.date), d.amount)}
+    <button class="btn primary" data-q="save">Agregar gasto</button>
     <button class="btn link" data-q="edit">Editar</button>
   </div>`;
   sheet.onclick = async (e) => {
@@ -1107,7 +816,7 @@ function showQuickCard(d) {
     const q = b.dataset.q;
     if (q === 'close') closeSheet();
     else if (q === 'cat') {
-      const id = await pickCategory(d.type, d.categoryId, suggestCategory(d.desc, d.type, state));
+      const id = await pickCategory('gasto', d.categoryId, suggestCategory(d.desc, 'gasto', state));
       if (id !== undefined) {
         d.categoryId = id;
         d.catManual = true;
@@ -1116,13 +825,13 @@ function showQuickCard(d) {
     } else if (q === 'save') {
       closeSheet();
       if (d.catManual && d.desc && d.categoryId) store.learnRule(d.desc, d.categoryId);
-      const m = store.addMovement({ type: d.type, amount: d.amount, date: d.date, desc: d.desc, categoryId: d.categoryId, source: 'rapido' });
+      const m = store.addMovement({ type: 'gasto', amount: d.amount, date: d.date, desc: d.desc, categoryId: d.categoryId, source: 'rapido' });
       checkSave();
-      celebrate(d.type === 'ingreso' ? '¡Ingreso anotado!' : '¡Gasto anotado!', budgetAlert(m));
+      celebrate('¡Gasto anotado!', budgetAlert(m));
       renderHome();
     } else if (q === 'edit') {
       closeSheet();
-      draft = { ...d, step: 4 };
+      draft = d;
       keepDraft = true;
       navigate('/rapido');
     }
@@ -1130,37 +839,34 @@ function showQuickCard(d) {
   if (!sheet.open) sheet.showModal();
 }
 
-// ---------- Movimientos (historial) ----------
+// ---------- Gastos (historial) ----------
 
 function historyList() {
   const q = normalizeText(histFilter.q);
   const list = store.movementsOf(viewMonth).filter(
     (m) =>
+      m.type === 'gasto' &&
       (!histFilter.cat || (histFilter.cat === '__none' ? !m.categoryId : m.categoryId === histFilter.cat)) &&
-      (!histFilter.tag || (m.tags || []).includes(histFilter.tag)) &&
-      (!q || normalizeText(`${m.desc} ${catOf(m.categoryId).name} ${(m.tags || []).join(' ')}`).includes(q)),
+      (!q || normalizeText(`${m.desc} ${catOf(m.categoryId).name}`).includes(q)),
   );
-  if (!list.length) return `<div class="empty">${icon('search')}<p>No hay movimientos${histFilter.q || histFilter.cat || histFilter.tag ? ' con ese filtro' : ' este mes'}.</p></div>`;
-  let g = 0;
-  let i = 0;
-  for (const m of list) m.type === 'ingreso' ? (i += m.amount) : (g += m.amount);
-  return `<p class="summary-line">${list.length} ${list.length === 1 ? 'movimiento' : 'movimientos'} · <span class="neg">${money(g, '-')}</span> · <span class="pos">${money(i, '+')}</span></p>
+  if (!list.length) return `<div class="empty">${icon('search')}<p>No hay gastos${histFilter.q || histFilter.cat ? ' con ese filtro' : ' este mes'}.</p></div>`;
+  const total = list.reduce((s, m) => s + m.amount, 0);
+  return `<p class="summary-line">${list.length} ${list.length === 1 ? 'gasto' : 'gastos'} · ${money(total)}</p>
     ${movementList(list)}`;
 }
 
 function renderHistory() {
   const opt = (v, label, sel) => `<option value="${esc(v)}"${v === sel ? ' selected' : ''}>${esc(label)}</option>`;
-  const catOptions = ['gasto', 'ingreso']
-    .map((t) => `<optgroup label="${t === 'gasto' ? 'Gastos' : 'Ingresos'}">${store.categoriesOf(t).map((c) => opt(c.id, c.name, histFilter.cat)).join('')}</optgroup>`)
-    .join('');
   mount(
     `<div class="screen">
-      <header class="topbar main"><h1 class="brand-title">Movimientos</h1>${monthNav()}</header>
+      <header class="topbar main"><h1 class="brand-title">Gastos</h1>${monthNav()}</header>
       <main class="content">
-        <label class="search">${icon('search')}<input id="hq" placeholder="Buscar" autocomplete="off" value="${esc(histFilter.q)}"></label>
         <div class="filters">
-          <select id="hcat" aria-label="Categoría">${opt('', 'Todas las categorías', histFilter.cat)}${opt('__none', 'Sin clasificar', histFilter.cat)}${catOptions}</select>
-          <select id="htag" aria-label="Etiqueta">${opt('', 'Todas las etiquetas', histFilter.tag)}${store.allTags().map((t) => opt(t, '#' + t, histFilter.tag)).join('')}</select>
+          <label class="search">${icon('search')}<input id="hq" placeholder="Buscar" autocomplete="off" value="${esc(histFilter.q)}"></label>
+          <select id="hcat" aria-label="Categoría">${opt('', 'Todas', histFilter.cat)}${opt('__none', 'Sin categoría', histFilter.cat)}${store
+            .categoriesOf('gasto')
+            .map((c) => opt(c.id, c.name, histFilter.cat))
+            .join('')}</select>
         </div>
         <div id="hlist">${historyList()}</div>
       </main>
@@ -1175,16 +881,50 @@ function renderHistory() {
         root.querySelector('#hlist').innerHTML = historyList();
       },
       change: (e) => {
-        if (e.target.id === 'hcat') histFilter.cat = e.target.value;
-        else if (e.target.id === 'htag') histFilter.tag = e.target.value;
-        else return;
+        if (e.target.id !== 'hcat') return;
+        histFilter.cat = e.target.value;
         root.querySelector('#hlist').innerHTML = historyList();
       },
     },
   );
 }
 
-// ---------- Análisis: presupuestos e insights ----------
+// ---------- Análisis: gráfico, proyección y presupuestos ----------
+
+/**
+ * "En qué se fue la plata": una barra de 100 % partida por categoría (con separación entre tramos)
+ * y la lista debajo como leyenda, con nombre, monto y porcentaje. Así no depende solo del color.
+ */
+function spendingChart(ranked, total, spentPrev, prevName) {
+  if (!ranked.length) return '';
+  const segs = ranked
+    .map(([id, v]) => {
+      const c = catOf(id);
+      const pct = v / total;
+      return `<button class="stack-seg" style="flex-grow:${v};background:${c.color}" data-action="seg" data-id="${id ?? ''}"
+        aria-label="${esc(c.name)}: ${money(v)}, ${pctText(pct)}"></button>`;
+    })
+    .join('');
+  const rows = ranked
+    .map(([id, v]) => {
+      const c = catOf(id);
+      const pv = spentPrev.get(id) || 0;
+      const delta = pv ? v / pv - 1 : null;
+      return `<div class="legend-row" data-id="${id ?? ''}">
+        ${catIcon(c, 'sm')}
+        <span class="legend-name">${esc(c.name)}${
+          delta === null ? '' : `<small class="${delta > 0 ? 'neg' : 'pos'}">${delta > 0 ? '+' : ''}${Math.round(delta * 100)} % vs ${prevName}</small>`
+        }</span>
+        <span class="legend-val"><b>${money(v)}</b><small>${pctText(v / total)}</small></span>
+      </div>`;
+    })
+    .join('');
+  return `<section class="card pad chart-card">
+    <div class="sec-head"><h2>En qué se fue la plata</h2></div>
+    <div class="stack" role="img" aria-label="Gasto por categoría">${segs}</div>
+    <div class="legend">${rows}</div>
+  </section>`;
+}
 
 function renderInsights() {
   const ym = viewMonth;
@@ -1193,10 +933,11 @@ function renderInsights() {
   const prev = addMonths(ym, -1);
   const dim = daysInMonth(ym);
   const elapsed = isCurrent ? Number(todayStr().slice(8)) : ym < nowYm ? dim : 0;
-  const t = store.totalsOf(ym);
+  const total = store.totalsOf(ym).gastos;
   const spent = store.spentByCategory(ym);
   const spentPrev = store.spentByCategory(prev);
   const proj = (x) => (elapsed ? Math.round((x / elapsed) * dim) : 0);
+  const prevName = MONTHS[Number(prev.slice(5)) - 1];
 
   // Comparación con el mes anterior (en el mes actual, hasta el mismo día).
   let prevGastos = 0;
@@ -1204,19 +945,18 @@ function renderInsights() {
     if (m.type !== 'gasto' || !m.date.startsWith(prev)) continue;
     if (!isCurrent || Number(m.date.slice(8)) <= elapsed) prevGastos += m.amount;
   }
-  const prevName = MONTHS[Number(prev.slice(5)) - 1];
   let compare = '';
-  if (prevGastos > 0 && t.gastos > 0) {
-    const diff = t.gastos / prevGastos - 1;
+  if (prevGastos > 0 && total > 0) {
+    const diff = total / prevGastos - 1;
     const more = diff > 0;
     compare = `<p class="compare ${more ? 'neg' : 'pos'}">${icon(more ? 'arrow-up' : 'arrow-down')}
       ${Math.abs(Math.round(diff * 100))} % ${more ? 'más' : 'menos'} que ${isCurrent ? `a esta altura de ${prevName}` : `en ${prevName}`}</p>`;
   }
 
   const totalLimit = state.budgets.reduce((s, b) => s + b.limit, 0);
-  const projTotal = proj(t.gastos);
+  const projTotal = proj(total);
   const projCard =
-    isCurrent && t.gastos > 0
+    isCurrent && total > 0
       ? `<section class="card pad">
           <div class="sec-head"><h2>Proyección de fin de mes</h2></div>
           <div class="proj">
@@ -1224,7 +964,6 @@ function renderInsights() {
             ${totalLimit ? `<div><small>Límite total</small><b>${money(totalLimit)}</b></div>` : ''}
           </div>
           ${totalLimit ? bar(projTotal / totalLimit) : ''}
-          <p class="muted-sm">${money(t.gastos)} en ${elapsed} ${elapsed === 1 ? 'día' : 'días'} ÷ ${elapsed} × ${dim} días del mes</p>
         </section>`
       : '';
 
@@ -1236,18 +975,18 @@ function renderInsights() {
   const noLimit = cats.filter((c) => !store.getBudget(c.id));
 
   const budgetHTML = `<section class="card pad">
-    <div class="sec-head"><h2>Presupuestos</h2><small class="muted-sm">Tocá una categoría para cambiar su límite</small></div>
+    <div class="sec-head"><h2>Límites</h2><small class="muted-sm">Tocá para cambiar</small></div>
     ${withLimit
       .map(({ c, s, l }) => {
         const p = s / l;
-        const pc = proj(s);
-        return `<button class="bud-row" data-action="set-budget" data-id="${c.id}">
-          <div class="bud-top">${catIcon(c, 'sm')}<b>${esc(c.name)}</b><span>${money(s)} <small>/ ${money(l)}</small></span></div>
-          ${bar(p)}
-          <div class="bud-foot"><span class="t-${tone(p)}">${pctText(p)}</span>${
-            isCurrent && s ? `<span class="${pc > l ? 'neg' : ''}">Proyección ${money(pc)}</span>` : ''
-          }</div>
-        </button>`;
+        return `<div class="bud-row">
+          <button class="bud-edit" data-action="set-budget" data-id="${c.id}">
+            <div class="bud-top">${catIcon(c, 'sm')}<b>${esc(c.name)}</b><span>${money(s)} <small>/ ${money(l)}</small></span></div>
+            ${bar(p)}
+          </button>
+          <div class="bud-foot"><span class="t-${tone(p)}">${pctText(p)}</span>
+            <button class="bud-del" data-action="del-budget" data-id="${c.id}" aria-label="Quitar el límite de ${esc(c.name)}">${icon('trash')}</button></div>
+        </div>`;
       })
       .join('')}
     ${
@@ -1260,48 +999,38 @@ function renderInsights() {
   </section>`;
 
   const ranked = [...spent.entries()].filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1]);
-  const top = ranked[0]?.[1] || 1;
-  const rankHTML = ranked.length
-    ? `<section class="card pad">
-        <div class="sec-head"><h2>En qué se fue la plata</h2></div>
-        ${ranked
-          .map(([id, v]) => {
-            const c = catOf(id);
-            const pv = spentPrev.get(id) || 0;
-            const delta = pv ? v / pv - 1 : null;
-            return `<div class="rank-row">
-              ${catIcon(c, 'sm')}
-              <div class="rank-main">
-                <div class="rank-top"><span>${esc(c.name)}</span><b>${money(v)}</b></div>
-                <div class="rank-bar"><i style="width:${((v / top) * 100).toFixed(1)}%;background:${c.color}"></i></div>
-                <small>${pctText(v / (t.gastos || 1))} del gasto${
-                  delta === null ? '' : ` · <span class="${delta > 0 ? 'neg' : 'pos'}">${delta > 0 ? '+' : ''}${Math.round(delta * 100)} % vs ${prevName}</span>`
-                }</small>
-              </div>
-            </div>`;
-          })
-          .join('')}
-      </section>`
-    : '';
 
   mount(
     `<div class="screen">
       <header class="topbar main"><h1 class="brand-title">Análisis</h1>${monthNav()}</header>
       <main class="content">
-        <div class="tiles3">
-          <div class="tile3"><small>Gastado</small><b>${money(t.gastos)}</b></div>
-          <div class="tile3"><small>Ingresado</small><b>${money(t.ingresos)}</b></div>
-          <div class="tile3"><small>Balance</small><b class="${t.balance < 0 ? 'neg' : 'pos'}">${money(t.balance, t.balance < 0 ? '-' : '')}</b></div>
-        </div>
-        ${compare}
+        <section class="spent small">
+          <div class="spent-label">Gastado</div>
+          <div class="spent-amount">${money(total)}</div>
+          ${compare}
+        </section>
+        ${spendingChart(ranked, total, spentPrev, prevName)}
         ${projCard}
         ${budgetHTML}
-        ${rankHTML}
       </main>
       ${fab()}
       ${tabbar('/analisis')}
     </div>`,
     {
+      seg: (el) => {
+        const row = root.querySelector(`.legend-row[data-id="${el.dataset.id}"]`);
+        root.querySelectorAll('.legend-row.hl, .stack-seg.hl').forEach((x) => x.classList.remove('hl'));
+        el.classList.add('hl');
+        row?.classList.add('hl');
+        toast(el.getAttribute('aria-label'));
+      },
+      'del-budget': (el) => {
+        const c = catOf(el.dataset.id);
+        store.setBudget(c.id, 0);
+        checkSave();
+        toast(`${c.name} sin límite`);
+        route(true);
+      },
       'set-budget': async (el) => {
         const c = catOf(el.dataset.id);
         const current = store.getBudget(c.id);
@@ -1330,8 +1059,8 @@ function batchItemHTML(it, i) {
       <label class="bi-date">${icon('calendar')}<span>${fmtDateShort(it.date)}</span><input type="date" data-i="${i}" class="bi-date-in" value="${it.date}"></label>
     </div>
     <div class="bi-side">
-      <div class="bi-amt ${it.type}">
-        <button class="bi-sign" data-action="b-type" data-i="${i}" aria-label="Cambiar gasto/ingreso">${it.type === 'ingreso' ? '+' : '-'}</button>
+      <div class="bi-amt">
+        <span class="bi-sign">${esc(cur())}</span>
         <input class="bi-amount" data-i="${i}" inputmode="numeric" value="${fmtNumber(it.amount)}">
       </div>
       <button class="icon-btn sm" data-action="b-del" data-i="${i}" aria-label="Quitar">${icon('trash')}</button>
@@ -1340,11 +1069,11 @@ function batchItemHTML(it, i) {
 }
 
 function batchTotalHTML() {
-  const net = batch.items.reduce((s, it) => s + (it.type === 'ingreso' ? it.amount : -it.amount), 0);
+  const total = batch.items.reduce((s, it) => s + it.amount, 0);
   const unc = batch.items.filter((it) => !it.categoryId).length;
-  return `<small>TOTAL DEL LOTE · ${batch.items.length} ${batch.items.length === 1 ? 'movimiento' : 'movimientos'}</small>
-    <b>${money(net, net < 0 ? '-' : '+')}</b>
-    ${unc ? `<span class="warn-text">${unc} sin clasificar</span>` : ''}`;
+  return `<small>TOTAL DEL LOTE · ${batch.items.length} ${batch.items.length === 1 ? 'gasto' : 'gastos'}</small>
+    <b>${money(total)}</b>
+    ${unc ? `<span class="warn-text">${unc} sin categoría</span>` : ''}`;
 }
 
 function renderBatch() {
@@ -1358,9 +1087,9 @@ function batchInput() {
     `<div class="screen">
       ${topbar(`${icon('sparkles')} Carga en lote`, { back: '/' })}
       <main class="content">
-        <p class="muted">Un movimiento por línea: <b>descripción y monto</b>. Con <b>+</b> delante del monto es un ingreso. La fecha al principio es opcional (<b>12/03</b>).</p>
+        <p class="muted">Un gasto por línea: <b>descripción y monto</b>. La fecha al principio es opcional (<b>12/03</b>).</p>
         <textarea id="btext" class="batch-text" rows="9" autocapitalize="sentences"
-          placeholder="Almuerzo 50.000&#10;Taxi 20.000&#10;Café 8.500&#10;Sueldo +1.500.000&#10;12/09 Farmacia 12.300">${esc(batch.text)}</textarea>
+          placeholder="Almuerzo 50.000&#10;Taxi 20.000&#10;Café 8.500&#10;12/09 Farmacia 12.300">${esc(batch.text)}</textarea>
         <div id="bproc"></div>
         <button class="btn primary" data-action="process">${icon('sparkles')} Procesar</button>
       </main>
@@ -1371,12 +1100,12 @@ function batchInput() {
         batch.text = text;
         const { items, errors } = parseBatch(text);
         if (!items.length) {
-          toast(errors.length ? 'No encontré montos en esas líneas' : 'Escribí al menos un movimiento');
+          toast(errors.length ? 'No encontré montos en esas líneas' : 'Escribí al menos un gasto');
           return;
         }
         batch.items = items.map((it) => {
-          const s = suggestCategory(it.desc, it.type, state);
-          return { ...it, categoryId: s, suggested: s, catManual: false };
+          const s = suggestCategory(it.desc, 'gasto', state);
+          return { ...it, type: 'gasto', categoryId: s, suggested: s, catManual: false };
         });
         batch.errors = errors;
         processingAnimation(() => route(true));
@@ -1435,14 +1164,6 @@ function batchPreview() {
         it.catManual = true;
         refreshItem(i);
       },
-      'b-type': (el) => {
-        const it = batch.items[Number(el.dataset.i)];
-        it.type = it.type === 'ingreso' ? 'gasto' : 'ingreso';
-        it.suggested = suggestCategory(it.desc, it.type, state);
-        it.categoryId = it.suggested;
-        it.catManual = false;
-        route(true);
-      },
       'b-del': (el) => {
         batch.items.splice(Number(el.dataset.i), 1);
         if (!batch.items.length) {
@@ -1466,13 +1187,13 @@ function batchPreview() {
         }
         const saved = store.addMovements(
           batch.items.map((it) => ({
-            type: it.type, amount: it.amount, date: it.date, desc: it.desc, categoryId: it.categoryId, tags: [], source: batch.source,
+            type: 'gasto', amount: it.amount, date: it.date, desc: it.desc, categoryId: it.categoryId, source: batch.source,
           })),
         );
         if (batch.importMark) store.setSetting('lastImport', batch.importMark);
         checkSave();
         const alert = saved.map(budgetAlert).find(Boolean);
-        celebrate(`${saved.length} ${saved.length === 1 ? 'movimiento anotado' : 'movimientos anotados'}`, alert);
+        celebrate(`${saved.length} ${saved.length === 1 ? 'gasto anotado' : 'gastos anotados'}`, alert);
         batch = null;
         depth = 0;
         navigate('/', { replace: true });
@@ -1525,13 +1246,11 @@ function renderRecurring() {
     .filter((f) => f.active)
     .flatMap((f) => occurrencesIn(f, nextYm).map((date) => ({ f, date })))
     .sort((a, b) => a.date.localeCompare(b.date));
-  let upG = 0;
-  let upI = 0;
-  for (const u of upcoming) if (!u.f.variable) u.f.type === 'ingreso' ? (upI += u.f.amount) : (upG += u.f.amount);
+  const upTotal = upcoming.reduce((s, u) => s + (u.f.variable ? 0 : u.f.amount), 0);
 
   mount(
     `<div class="screen">
-      ${topbar('Movimientos fijos', { back: '/ajustes', right: `<button class="icon-btn" data-action="to" data-to="/fijo/nuevo" aria-label="Nuevo fijo">${icon('plus')}</button>` })}
+      ${topbar('Gastos fijos', { back: '/ajustes', right: `<button class="icon-btn" data-action="to" data-to="/fijo/nuevo" aria-label="Nuevo fijo">${icon('plus')}</button>` })}
       <main class="content">
         ${due ? `<button class="banner accent" data-action="to" data-to="/pendientes">${icon('inbox')}<span><b>Para confirmar (${due})</b><small>Revisalos y confirmalos</small></span>${icon('chev-right')}</button>` : ''}
         <p class="muted">Nunca se anotan solos: cuando vencen aparecen en <b>Para confirmar</b>.</p>
@@ -1549,13 +1268,13 @@ function renderRecurring() {
                   </div>`;
                 })
                 .join('')}</div>`
-            : `<div class="empty">${icon('repeat')}<p>No tenés movimientos fijos.</p><small>Sumá el alquiler, el sueldo o Netflix para no cargarlos a mano.</small>
+            : `<div class="empty">${icon('repeat')}<p>No tenés gastos fijos.</p><small>Sumá el alquiler, la luz o Netflix para no cargarlos a mano.</small>
                 <button class="btn primary" data-action="to" data-to="/fijo/nuevo">Nuevo fijo</button></div>`
         }
         ${
           upcoming.length
             ? `<section class="card pad">
-                <div class="sec-head"><h2>${esc(fmtMonth(nextYm))}</h2><small class="muted-sm">${money(upG, '-')} · ${money(upI, '+')}</small></div>
+                <div class="sec-head"><h2>${esc(fmtMonth(nextYm))}</h2><small class="muted-sm">${money(upTotal)}</small></div>
                 ${upcoming
                   .map(
                     ({ f, date }) => `<div class="up-row"><span class="up-date">${parseDate(date).getDate()}</span>
@@ -1608,7 +1327,6 @@ function renderRecurringForm(id) {
       <main class="content">
         <div class="field"><label class="field-label" for="fx-name">Nombre</label>
           <input id="fx-name" value="${esc(f.name)}" placeholder="Ej: Alquiler, Netflix, Sueldo" autocapitalize="sentences" maxlength="60"></div>
-        <div class="seg">${seg('type', 'gasto', 'Gasto')}${seg('type', 'ingreso', 'Ingreso')}</div>
         <div class="field"><label class="field-label" for="fx-amount">Monto</label>
           <div class="amount-inline"><span>${esc(cur())}</span><input id="fx-amount" inputmode="numeric" value="${f.amount ? fmtNumber(f.amount) : ''}" placeholder="${f.variable ? 'Se pide al confirmar' : '0'}" ${f.variable ? 'disabled' : ''}></div>
           <label class="check-row"><input type="checkbox" id="fx-variable" ${f.variable ? 'checked' : ''}> El monto varía (luz, agua…): se pide al confirmar</label></div>
@@ -1628,7 +1346,6 @@ function renderRecurringForm(id) {
       'fx-set': (el) => {
         f[el.dataset.key] = el.dataset.val;
         if (el.dataset.key === 'every') f.day = el.dataset.val === 'semanal' ? parseDate(todayStr()).getDay() : Math.max(1, Number(f.day) || 1);
-        if (el.dataset.key === 'type') f.categoryId = null;
         route(true);
       },
       'fx-cat': async () => {
@@ -1712,7 +1429,7 @@ function renderPending() {
         <p class="muted">Los fijos nunca se anotan solos. Confirmá, cambiá el monto, saltá este ciclo o posponelo.</p>
         ${due.length ? due.map(card).join('') : `<div class="empty">${icon('check')}<p>Todo al día.</p><small>No hay fijos vencidos.</small></div>`}
         ${snoozed.length ? `<p class="label">Pospuestos para mañana</p>${snoozed.map(card).join('')}` : ''}
-        <button class="btn link" data-action="to" data-to="/fijos">Ver movimientos fijos</button>
+        <button class="btn link" data-action="to" data-to="/fijos">Ver gastos fijos</button>
       </main>
     </div>`,
     {
@@ -1743,92 +1460,13 @@ function renderPending() {
   );
 }
 
-// ---------- Categorías ----------
-
-function renderCategories() {
-  const list = store.categoriesOf(catTab);
-  const count = new Map();
-  for (const m of state.movements) count.set(m.categoryId, (count.get(m.categoryId) || 0) + 1);
-  const seg = (t, label) => `<button type="button" class="seg-btn${catTab === t ? ' on' : ''}" data-action="cat-tab" data-t="${t}">${label}</button>`;
-  mount(
-    `<div class="screen">
-      ${topbar('Categorías', { back: '/ajustes', right: `<button class="icon-btn" data-action="cat-add" aria-label="Nueva categoría">${icon('plus')}</button>` })}
-      <main class="content">
-        <div class="seg">${seg('gasto', 'Gastos')}${seg('ingreso', 'Ingresos')}</div>
-        <div class="card list">${list
-          .map(
-            (c) => `<button class="row" data-action="cat-edit" data-id="${c.id}">${catIcon(c)}
-              <span class="mov-main"><b>${esc(c.name)}</b><small>${count.get(c.id) || 0} movimientos${store.getBudget(c.id) ? ` · límite ${money(store.getBudget(c.id))}` : ''}</small></span>${icon('chev-right')}</button>`,
-          )
-          .join('')}</div>
-        <button class="btn secondary" data-action="cat-add">${icon('plus')} Nueva categoría</button>
-      </main>
-    </div>`,
-    {
-      'cat-tab': (el) => {
-        catTab = el.dataset.t;
-        route(true);
-      },
-      'cat-add': () => editCategory(null, catTab),
-      'cat-edit': (el) => editCategory(store.getCategory(el.dataset.id), catTab),
-    },
-  );
-}
-
-function editCategory(c, type) {
-  const st = { name: c?.name || '', color: c?.color || nextColor(), icon: c?.icon || 'tag' };
-  const draw = () => {
-    sheet.className = 'sheet';
-    sheet.innerHTML = `<form class="sheet-body tall" id="cform">
-      <p class="sheet-title">${c ? 'Editar categoría' : 'Nueva categoría'}</p>
-      <div class="cat-preview">${catIcon(st)}<input class="sheet-input" id="cname" value="${esc(st.name)}" placeholder="Nombre" maxlength="30" autocomplete="off"></div>
-      <p class="label">Color</p>
-      <div class="swatches">${COLORS.map((col) => `<button type="button" class="swatch${col === st.color ? ' on' : ''}" style="--c:${col}" data-color="${col}" aria-label="Color"></button>`).join('')}</div>
-      <p class="label">Ícono</p>
-      <div class="icon-grid">${CATEGORY_ICONS.map((ic) => `<button type="button" class="icon-opt${ic === st.icon ? ' on' : ''}" data-icon="${ic}" style="--c:${st.color}">${icon(ic)}</button>`).join('')}</div>
-      <button class="sheet-btn primary" type="submit">Guardar</button>
-      ${c ? '<button class="sheet-btn danger" type="button" data-del>Borrar categoría</button>' : ''}
-      <button class="sheet-btn cancel" type="button" data-cancel>Cancelar</button>
-    </form>`;
-  };
-  draw();
-  sheet.oninput = (e) => e.target.id === 'cname' && (st.name = e.target.value);
-  sheet.onclick = async (e) => {
-    if (e.target === sheet || e.target.closest('[data-cancel]')) return closeSheet();
-    const col = e.target.closest('[data-color]');
-    const ic = e.target.closest('[data-icon]');
-    if (col) st.color = col.dataset.color;
-    if (ic) st.icon = ic.dataset.icon;
-    if (col || ic) return draw();
-    if (e.target.closest('[data-del]')) {
-      const ok = await ask(`¿Borrar “${c.name}”? Sus movimientos pasan a Sin clasificar.`, { ok: 'Borrar', danger: true });
-      if (!ok) return;
-      store.deleteCategory(c.id);
-      checkSave();
-      toast('Categoría borrada');
-      route(true);
-    }
-  };
-  sheet.onsubmit = (e) => {
-    e.preventDefault();
-    const name = st.name.trim().slice(0, 30);
-    if (!name) return toast('Poné un nombre');
-    if (c) store.updateCategory(c.id, { name, color: st.color, icon: st.icon });
-    else store.addCategory({ name, color: st.color, icon: st.icon, type });
-    checkSave();
-    closeSheet();
-    route(true);
-  };
-  openDialog();
-}
-
 // ---------- Sin clasificar ----------
 
 function renderUnclassified() {
   const list = state.movements.filter((m) => !m.categoryId).sort((a, b) => b.date.localeCompare(a.date));
   mount(
     `<div class="screen">
-      ${topbar('Sin clasificar', { back: '/' })}
+      ${topbar('Sin categoría', { back: '/' })}
       <main class="content">
         <p class="muted">Tocá una categoría para asignarla. La app lo recuerda para la próxima vez.</p>
         ${
@@ -1875,36 +1513,7 @@ function assignCategory(movId, catId) {
   } else route(true);
 }
 
-function renderRules() {
-  const list = [...state.rules].sort((a, b) => a.pattern.localeCompare(b.pattern));
-  mount(
-    `<div class="screen">
-      ${topbar('Reglas aprendidas', { back: '/ajustes' })}
-      <main class="content">
-        <p class="muted">Cuando corregís la categoría de un movimiento, la app guarda la regla y la usa primero la próxima vez.</p>
-        ${
-          list.length
-            ? `<div class="card list">${list
-                .map((r) => {
-                  const c = catOf(r.categoryId);
-                  return `<div class="row">${catIcon(c, 'sm')}<span class="mov-main"><b>“${esc(r.pattern)}”</b><small>→ ${esc(c.name)}</small></span>
-                    <button class="icon-btn sm" data-action="r-del" data-id="${r.id}" aria-label="Borrar regla">${icon('trash')}</button></div>`;
-                })
-                .join('')}</div>`
-            : `<div class="empty">${icon('sparkles')}<p>Todavía no hay reglas aprendidas.</p></div>`
-        }
-      </main>
-    </div>`,
-    {
-      'r-del': (el) => {
-        store.deleteRule(el.dataset.id);
-        route(true);
-      },
-    },
-  );
-}
-
-// ---------- Ajustes, atajo y backup ----------
+// ---------- Ajustes y backup ----------
 
 function settingsRow(ic, title, sub, attrs) {
   return `<button class="row" ${attrs}><span class="row-ico">${icon(ic)}</span>
@@ -1913,52 +1522,28 @@ function settingsRow(ic, title, sub, attrs) {
 
 function renderSettings() {
   const s = state.settings;
-  const unc = state.movements.filter((m) => !m.categoryId).length;
   const active = state.recurring.filter((f) => f.active).length;
   mount(
     `<div class="screen">
       <header class="topbar main"><h1 class="brand-title">Ajustes</h1></header>
       <main class="content">
-        <p class="label">Registrar</p>
         <div class="card list">
-          ${settingsRow('layers', 'Carga en lote', 'Pegá varios movimientos, uno por línea', 'data-action="to" data-to="/lote"')}
-          ${settingsRow('repeat', 'Movimientos fijos', `${active} ${active === 1 ? 'activo' : 'activos'}`, 'data-action="to" data-to="/fijos"')}
-          ${settingsRow('inbox', 'Para confirmar', `${store.duePending().length} pendientes`, 'data-action="to" data-to="/pendientes"')}
-          ${settingsRow('help', 'Sin clasificar', `${unc}`, 'data-action="to" data-to="/sin-clasificar"')}
+          ${settingsRow('repeat', 'Gastos fijos', `${active} ${active === 1 ? 'activo' : 'activos'}`, 'data-action="to" data-to="/fijos"')}
+          ${settingsRow('layers', 'Carga en lote', 'Pegá varios gastos, uno por línea', 'data-action="to" data-to="/lote"')}
         </div>
-        <p class="label">Organizar</p>
+        <p class="label">Backup</p>
         <div class="card list">
-          ${settingsRow('grid', 'Categorías', `${state.categories.length} categorías`, 'data-action="to" data-to="/categorias"')}
-          ${settingsRow('pie', 'Presupuestos', `${state.budgets.length} con límite`, 'data-action="tab" data-to="/analisis"')}
-          ${settingsRow('sparkles', 'Reglas aprendidas', `${state.rules.length}`, 'data-action="to" data-to="/reglas"')}
-        </div>
-        <p class="label">Atajo del iPhone</p>
-        <div class="card list">
-          ${settingsRow('bolt', 'Configurar “Gasto rápido”', 'Centro de Control, botón de acción o tocar atrás', 'data-action="to" data-to="/atajo"')}
-          ${settingsRow('file', 'Importar del atajo (archivo)', s.lastImport ? `Último importado: ${esc(s.lastImport)}` : 'Plan B: lee movimientos.txt', 'data-action="import-txt"')}
-        </div>
-        <p class="label">Datos</p>
-        <div class="card list">
-          ${settingsRow('dollar', 'Moneda', esc(cur()), 'data-action="currency"')}
           ${settingsRow('download', 'Exportar backup', s.lastBackup ? `Último: ${esc(fmtDay(s.lastBackup.slice(0, 10)))}` : 'Nunca', 'data-action="export"')}
           ${settingsRow('upload', 'Importar backup', 'Reemplaza los datos de este celular', 'data-action="import"')}
         </div>
-        <p class="foot">Todo se guarda solo en este dispositivo · ${state.movements.length} movimientos</p>
+        <p class="foot">Todo se guarda solo en este celular · ${state.movements.length} gastos</p>
         <input type="file" id="file-json" accept="application/json,.json" hidden>
-        <input type="file" id="file-txt" accept=".txt,text/plain" hidden>
       </main>
       ${tabbar('/ajustes')}
     </div>`,
     {
-      currency: async () => {
-        const v = await promptSheet('Símbolo de moneda', { value: cur(), placeholder: '$' });
-        if (v === null) return;
-        store.setSetting('currency', v.slice(0, 4) || '$');
-        route(true);
-      },
       export: () => exportBackup(),
       import: () => root.querySelector('#file-json').click(),
-      'import-txt': () => root.querySelector('#file-txt').click(),
     },
     {
       change: async (e) => {
@@ -1967,7 +1552,6 @@ function renderSettings() {
         const text = await file.text();
         e.target.value = '';
         if (e.target.id === 'file-json') importBackup(text);
-        else if (e.target.id === 'file-txt') importShortcutFile(text);
       },
     },
   );
@@ -2014,81 +1598,6 @@ async function importBackup(text) {
   checkSave();
   toast('Backup importado');
   route(true);
-}
-
-/** Plan B: el atajo agrega líneas "30/09/2026 09:05 Café 4500" a movimientos.txt. Se importa solo lo nuevo. */
-function importShortcutFile(text) {
-  const { items, errors } = parseBatch(text);
-  const last = state.settings.lastImport || '';
-  const stamp = (it) => `${it.date} ${it.time || '00:00'}`;
-  const fresh = items.filter((it) => stamp(it) > last);
-  if (!fresh.length) return toast(items.length ? 'No hay movimientos nuevos para importar' : 'No encontré movimientos en el archivo');
-  batch = {
-    text: '',
-    source: 'rapido',
-    importMark: fresh.map(stamp).sort().pop(),
-    errors,
-    items: fresh.map((it) => {
-      const s = suggestCategory(it.desc, it.type, state);
-      return { ...it, categoryId: s, suggested: s, catManual: false };
-    }),
-  };
-  navigate('/lote');
-}
-
-function renderShortcutHelp() {
-  const base = `${location.origin}${location.pathname}`;
-  const url = `${base}#/rapido?monto=`;
-  mount(
-    `<div class="screen">
-      ${topbar(`${icon('bolt')} Gasto rápido`, { back: '/ajustes' })}
-      <main class="content prose">
-        <p class="muted">Un atajo de iOS te pregunta el monto y qué compraste, y abre la app con la tarjeta lista para guardar.</p>
-        <section class="card pad">
-          <div class="sec-head"><h2>Plan A · Abrir la app</h2></div>
-          <ol class="steps">
-            <li>Abrí <b>Atajos</b> → <b>+</b> → nombre: <b>Gasto rápido</b>.</li>
-            <li>Acción <b>Pedir entrada</b> · tipo <b>Número</b> · pregunta “¿Cuánto?”.</li>
-            <li>Acción <b>Pedir entrada</b> · tipo <b>Texto</b> · pregunta “¿Qué compraste?”.</li>
-            <li>Acción <b>Codificar URL</b> sobre el texto (para espacios y tildes).</li>
-            <li>Acción <b>Abrir URL</b> con: <code class="block">${esc(url)}<i>[Cantidad]</i>&amp;desc=<i>[URL codificada]</i></code></li>
-            <li>Centro de Control → editar → <b>Agregar un control</b> → Atajos → <b>Gasto rápido</b>. También sirve el botón de acción o “tocar atrás”.</li>
-          </ol>
-          <p class="muted-sm">Para un ingreso, sumá <code>&amp;tipo=ingreso</code> al final.</p>
-          <div class="two">
-            <button class="btn secondary sm" data-action="copy">${icon('copy')} Copiar URL</button>
-            <button class="btn secondary sm" data-action="try">${icon('bolt')} Probar</button>
-          </div>
-        </section>
-        <section class="card pad">
-          <div class="sec-head"><h2>Prueba 0</h2></div>
-          <p class="muted-sm">En el iPhone, Abrir URL puede abrir <b>Safari</b> en vez de la app instalada, y Safari guarda los datos por separado. Anotá un gasto con el atajo y fijate si aparece en la app instalada. Si no aparece, usá el Plan B.</p>
-        </section>
-        <section class="card pad">
-          <div class="sec-head"><h2>Plan B · Archivo</h2></div>
-          <ol class="steps">
-            <li>En el atajo, después de pedir monto y descripción, usá <b>Agregar a archivo de texto</b> → <code>movimientos.txt</code> en Archivos.</li>
-            <li>Texto de cada línea: <code class="block"><i>[Fecha actual: dd/MM/yyyy HH:mm]</i> <i>[Texto]</i> <i>[Cantidad]</i></code></li>
-            <li>En la app: Ajustes → <b>Importar del atajo (archivo)</b>. Solo se importa lo nuevo, con vista previa.</li>
-          </ol>
-        </section>
-      </main>
-    </div>`,
-    {
-      copy: async () => {
-        try {
-          await navigator.clipboard.writeText(url);
-          toast('URL copiada');
-        } catch {
-          toast('No se pudo copiar');
-        }
-      },
-      try: () => {
-        depth = 0;
-        navigate('/rapido?monto=4500&desc=Parqueadero', { replace: true });
-      },
-    },
-  );
 }
 
 // ---------- Arranque ----------

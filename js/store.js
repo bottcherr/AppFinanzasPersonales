@@ -104,22 +104,6 @@ export function addCategory({ name, color, icon, type }) {
   return c;
 }
 
-export function updateCategory(id, patch) {
-  const c = getCategory(id);
-  if (c) Object.assign(c, patch);
-  save();
-}
-
-/** Al borrar una categoría, sus movimientos (y fijos) pasan a "Sin clasificar". */
-export function deleteCategory(id) {
-  state.categories = state.categories.filter((c) => c.id !== id);
-  for (const m of state.movements) if (m.categoryId === id) m.categoryId = null;
-  for (const f of state.recurring) if (f.categoryId === id) f.categoryId = null;
-  state.rules = state.rules.filter((r) => r.categoryId !== id);
-  state.budgets = state.budgets.filter((b) => b.categoryId !== id);
-  save();
-}
-
 // ---------- Movimientos ----------
 
 export function addMovement(data) {
@@ -130,7 +114,6 @@ export function addMovement(data) {
     date: data.date || todayStr(),
     desc: data.desc || '',
     categoryId: data.categoryId ?? null,
-    tags: data.tags || [],
     source: data.source || 'app',
     createdAt: new Date().toISOString(),
   };
@@ -193,12 +176,6 @@ export function spentByCategory(ym, excludeId = null) {
   return map;
 }
 
-export function allTags() {
-  const set = new Set();
-  for (const m of state.movements) for (const t of m.tags || []) set.add(t);
-  return [...set].sort((a, b) => a.localeCompare(b));
-}
-
 /** Categorías más usadas en los últimos 90 días. */
 export function frequentCategories(type, n = 4) {
   const since = addDays(todayStr(), -90);
@@ -222,11 +199,6 @@ export function learnRule(desc, categoryId) {
   if (!pattern || !categoryId) return;
   state.rules = state.rules.filter((r) => r.pattern !== pattern);
   state.rules.push({ id: uid(), pattern, categoryId, source: 'aprendida' });
-  save();
-}
-
-export function deleteRule(id) {
-  state.rules = state.rules.filter((r) => r.id !== id);
   save();
 }
 

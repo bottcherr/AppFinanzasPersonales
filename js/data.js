@@ -5,13 +5,6 @@ export const COLORS = [
   '#14b8a6', '#eab308', '#6366f1', '#84cc16', '#f43f5e', '#94a3b8',
 ];
 
-// Íconos que se pueden elegir para una categoría (ver js/icons.js).
-export const CATEGORY_ICONS = [
-  'coffee', 'cart', 'truck', 'tv', 'zap', 'home', 'heart', 'smile', 'dots', 'briefcase',
-  'plus-circle', 'gift', 'book', 'plane', 'music', 'phone', 'droplet', 'film', 'users',
-  'card', 'percent', 'tag', 'activity', 'dollar',
-];
-
 export const DEFAULT_CATEGORIES = [
   { id: 'comida', name: 'Comida', color: '#f97316', icon: 'coffee', type: 'gasto' },
   { id: 'super', name: 'Supermercado', color: '#ef4444', icon: 'cart', type: 'gasto' },
@@ -22,12 +15,10 @@ export const DEFAULT_CATEGORIES = [
   { id: 'salud', name: 'Salud', color: '#14b8a6', icon: 'heart', type: 'gasto' },
   { id: 'ocio', name: 'Ocio', color: '#a855f7', icon: 'smile', type: 'gasto' },
   { id: 'otros', name: 'Otros', color: '#94a3b8', icon: 'dots', type: 'gasto' },
-  { id: 'sueldo', name: 'Sueldo', color: '#22c39a', icon: 'briefcase', type: 'ingreso' },
-  { id: 'otros-ingresos', name: 'Otros ingresos', color: '#84cc16', icon: 'plus-circle', type: 'ingreso' },
 ];
 
 // Pseudo-categoría para lo que las reglas no pudieron resolver (categoryId = null).
-export const UNCLASSIFIED = { id: null, name: 'Sin clasificar', color: '#64748b', icon: 'help', type: null };
+export const UNCLASSIFIED = { id: null, name: 'Sin categoría', color: '#64748b', icon: 'help', type: null };
 
 /**
  * Reglas base: palabras clave por categoría, ya normalizadas (minúsculas, sin tildes).
