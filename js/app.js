@@ -165,6 +165,8 @@ function route(soft = false) {
       return renderRecurring();
     case 'fijo':
       return renderRecurringForm(b);
+    case 'meses':
+      return renderMonths();
     case 'pendientes':
       return renderPending();
     case 'sin-clasificar':
@@ -179,7 +181,7 @@ function route(soft = false) {
 function tabbar(active) {
   const tabs = [
     ['/', 'home', 'Inicio'],
-    ['/movimientos', 'list', 'Gastos'],
+    ['/movimientos', 'list', 'Historial'],
     ['/analisis', 'chart', 'Análisis'],
     ['/ajustes', 'sliders', 'Ajustes'],
   ];
@@ -195,11 +197,14 @@ function fab(label = false) {
   return `<button class="fab${label ? ' wide' : ''}" data-action="to" data-to="/nuevo" aria-label="Anotar">${icon('plus')}${label ? '<span>Anotar</span>' : ''}</button>`;
 }
 
+/** Pastilla con el mes completo ("Octubre"); el año solo aparece si no es el actual ("Diciembre 2025"). */
 function monthNav() {
-  return `<div class="month-nav">
-    <button class="icon-btn sm" data-action="month-prev" aria-label="Mes anterior">${icon('chev-left')}</button>
-    <span>${fmtMonth(viewMonth, true)}</span>
-    <button class="icon-btn sm" data-action="month-next" aria-label="Mes siguiente">${icon('chev-right')}</button>
+  const [name, year] = fmtMonth(viewMonth).split(' ');
+  const label = name[0].toUpperCase() + name.slice(1) + (year === todayStr().slice(0, 4) ? '' : ` ${year}`);
+  return `<div class="month-pill">
+    <button data-action="month-prev" aria-label="Mes anterior">${icon('chev-left')}</button>
+    <span>${label}</span>
+    <button data-action="month-next" aria-label="Mes siguiente">${icon('chev-right')}</button>
   </div>`;
 }
 
@@ -531,14 +536,17 @@ function renderHome() {
       <header class="home-top">
         <div class="brand">
           <img class="logo" src="icons/icon.svg" alt="">
-          <div><h1 class="brand-title">Finanzas</h1>${monthNav()}</div>
+          <h1 class="brand-title">Gastos</h1>
         </div>
-        <button class="icon-btn" data-action="toggle-hide" aria-label="${hide ? 'Mostrar' : 'Ocultar'} montos">${icon(hide ? 'eye-off' : 'eye')}</button>
+        ${monthNav()}
       </header>
       <main class="content">
         ${banners.join('')}
         <section class="spent">
-          <div class="spent-label">Gastaste en ${esc(monthName)}</div>
+          <div class="spent-head">
+            <span class="spent-label">Gastaste en ${esc(monthName)}</span>
+            <button class="icon-btn sm" data-action="toggle-hide" aria-label="${hide ? 'Mostrar' : 'Ocultar'} montos">${icon(hide ? 'eye-off' : 'eye')}</button>
+          </div>
           <div class="spent-amount">${money(total)}</div>
           <small>${gastos.length} ${gastos.length === 1 ? 'gasto' : 'gastos'}</small>
         </section>
@@ -859,7 +867,7 @@ function renderHistory() {
   const opt = (v, label, sel) => `<option value="${esc(v)}"${v === sel ? ' selected' : ''}>${esc(label)}</option>`;
   mount(
     `<div class="screen">
-      <header class="topbar main"><h1 class="brand-title">Gastos</h1>${monthNav()}</header>
+      <header class="topbar main"><h1 class="brand-title">Historial</h1>${monthNav()}</header>
       <main class="content">
         <div class="filters">
           <label class="search">${icon('search')}<input id="hq" placeholder="Buscar" autocomplete="off" value="${esc(histFilter.q)}"></label>
@@ -1513,6 +1521,89 @@ function assignCategory(movId, catId) {
   } else route(true);
 }
 
+// ---------- Gastos por mes ----------
+
+/** Últimos 12 meses (del más viejo al actual), empezando desde el primer mes con gastos. */
+function monthlySeries() {
+  const totals = new Map();
+  for (const m of state.movements) {
+    if (m.type !== 'gasto') continue;
+    const ym = monthOf(m.date);
+    totals.set(ym, (totals.get(ym) || 0) + m.amount);
+  }
+  const now = store.currentMonth();
+  let months = Array.from({ length: 12 }, (_, i) => addMonths(now, i - 11));
+  const first = months.findIndex((ym) => totals.get(ym));
+  months = first === -1 ? [now] : months.slice(first);
+  return months.map((ym) => ({ ym, total: totals.get(ym) || 0 }));
+}
+
+const monthTitle = (ym) => {
+  const [name, year] = fmtMonth(ym).split(' ');
+  return `${name[0].toUpperCase()}${name.slice(1)} ${year}`;
+};
+
+function renderMonths(selected = store.currentMonth(), still = false) {
+  const series = monthlySeries();
+  const max = Math.max(...series.map((s) => s.total), 1);
+  // Promedio de los meses ya cerrados (el actual todavía no terminó).
+  const closed = series.filter((s) => s.ym !== store.currentMonth());
+  const avg = closed.length ? Math.round(closed.reduce((a, s) => a + s.total, 0) / closed.length) : 0;
+  const sel = series.find((s) => s.ym === selected) || series[series.length - 1];
+
+  const bars = series
+    .map(
+      (s) => `<button class="mbar${s.ym === sel.ym ? ' on' : ''}" data-action="m-pick" data-ym="${s.ym}"
+        aria-label="${monthTitle(s.ym)}: ${money(s.total)}">
+        <span class="mbar-track"><i style="height:${((s.total / max) * 100).toFixed(1)}%"></i></span>
+        <span class="mbar-lbl">${MONTHS[Number(s.ym.slice(5)) - 1].slice(0, 3)}</span>
+      </button>`,
+    )
+    .join('');
+
+  const rows = [...series]
+    .reverse()
+    .map((s) => {
+      const prev = series.find((x) => x.ym === addMonths(s.ym, -1));
+      const delta = prev && prev.total ? s.total / prev.total - 1 : null;
+      return `<button class="row month-row${s.ym === sel.ym ? ' on' : ''}" data-action="m-open" data-ym="${s.ym}">
+        <span class="mov-main"><b>${monthTitle(s.ym)}</b>${
+          s.ym === store.currentMonth()
+            ? '<small>En curso</small>'
+            : delta === null
+            ? ''
+            : `<small class="${delta > 0 ? 'neg' : 'pos'}">${icon(delta > 0 ? 'arrow-up' : 'arrow-down')}${Math.abs(Math.round(delta * 100))} % vs. el anterior</small>`
+        }</span>
+        <span class="mov-amt">${money(s.total)}</span>${icon('chev-right')}
+      </button>`;
+    })
+    .join('');
+
+  mount(
+    `<div class="screen">
+      ${topbar('Gastos por mes', { back: '/ajustes' })}
+      <main class="content">
+        <section class="spent small">
+          <div class="spent-label">${monthTitle(sel.ym)}</div>
+          <div class="spent-amount">${money(sel.total)}</div>
+          ${avg ? `<small>Promedio mensual: ${money(avg)}</small>` : ''}
+        </section>
+        <section class="card pad">
+          <div class="mchart${still ? ' still' : ''}" role="img" aria-label="Gasto por mes, últimos ${series.length} meses">${bars}</div>
+        </section>
+        <div class="card list">${rows}</div>
+      </main>
+    </div>`,
+    {
+      'm-pick': (el) => renderMonths(el.dataset.ym, true),
+      'm-open': (el) => {
+        viewMonth = el.dataset.ym;
+        navigate('/analisis');
+      },
+    },
+  );
+}
+
 // ---------- Ajustes y backup ----------
 
 function settingsRow(ic, title, sub, attrs) {
@@ -1527,6 +1618,9 @@ function renderSettings() {
     `<div class="screen">
       <header class="topbar main"><h1 class="brand-title">Ajustes</h1></header>
       <main class="content">
+        <div class="card list">
+          ${settingsRow('chart', 'Gastos por mes', 'Resumen de los últimos meses', 'data-action="to" data-to="/meses"')}
+        </div>
         <div class="card list">
           ${settingsRow('repeat', 'Gastos fijos', `${active} ${active === 1 ? 'activo' : 'activos'}`, 'data-action="to" data-to="/fijos"')}
           ${settingsRow('layers', 'Carga en lote', 'Pegá varios gastos, uno por línea', 'data-action="to" data-to="/lote"')}
