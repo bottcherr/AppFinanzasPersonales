@@ -101,7 +101,17 @@ function mount(html, screenActions = {}, handlers = {}) {
     ((e) => {
       e.preventDefault();
     });
+  // Las fechas de la lista quedan pegadas justo debajo de la barra de título (si la pantalla tiene una).
+  const bar = root.querySelector('.topbar');
+  root.style.setProperty('--sticky-top', `${bar ? bar.offsetHeight : 0}px`);
+  syncFab();
 }
+
+/** El botón "Anotar" se achica a solo "+" al bajar, para no tapar la lista. */
+function syncFab() {
+  root.querySelector('.fab.wide')?.classList.toggle('small', window.scrollY > 24);
+}
+window.addEventListener('scroll', syncFab, { passive: true });
 
 const COMMON = {
   to: (el) => navigate(el.dataset.to),
@@ -188,7 +198,7 @@ function tabbar(active) {
   return `<nav class="tabbar">${tabs
     .map(
       ([to, ic, label]) =>
-        `<button class="tab${active === to ? ' on' : ''}" data-action="tab" data-to="${to}" aria-label="${label}">${icon(ic)}</button>`,
+        `<button class="tab${active === to ? ' on' : ''}" data-action="tab" data-to="${to}">${icon(ic)}<span>${label}</span></button>`,
     )
     .join('')}</nav>`;
 }
@@ -415,6 +425,64 @@ function promptSheet(title, { value = '', placeholder = '', amount = false, ok =
   });
 }
 
+/** Calendario propio en una hoja. Resuelve con 'YYYY-MM-DD', o null si se canceló. */
+function pickDate(value) {
+  return new Promise((resolve) => {
+    const today = todayStr();
+    let ym = monthOf(value || today);
+    let settled = false;
+    const done = (v) => {
+      if (settled) return;
+      settled = true;
+      closeSheet();
+      resolve(v);
+    };
+    const draw = () => {
+      const [y, m] = ym.split('-').map(Number);
+      const offset = (new Date(y, m - 1, 1).getDay() + 6) % 7; // la semana empieza el lunes
+      const days = Array.from({ length: daysInMonth(ym) }, (_, i) => `${ym}-${String(i + 1).padStart(2, '0')}`);
+      const [name, year] = fmtMonth(ym).split(' ');
+      sheet.className = 'sheet';
+      sheet.innerHTML = `<div class="sheet-body cal">
+        <div class="cal-quick">
+          <button class="${value === today ? 'on' : ''}" data-d="${today}">Hoy</button>
+          <button class="${value === addDays(today, -1) ? 'on' : ''}" data-d="${addDays(today, -1)}">Ayer</button>
+        </div>
+        <div class="cal-head">
+          <button data-nav="-1" aria-label="Mes anterior">${icon('chev-left')}</button>
+          <b>${name[0].toUpperCase() + name.slice(1)} ${year}</b>
+          <button data-nav="1" aria-label="Mes siguiente">${icon('chev-right')}</button>
+        </div>
+        <div class="cal-grid">
+          ${['L', 'M', 'M', 'J', 'V', 'S', 'D'].map((w) => `<span class="cal-wd">${w}</span>`).join('')}
+          ${'<span></span>'.repeat(offset)}
+          ${days
+            .map((d) => {
+              const cls = [d === value && 'sel', d === today && 'today', d > today && 'future'].filter(Boolean).join(' ');
+              return `<button class="cal-day ${cls}" data-d="${d}">${Number(d.slice(8))}</button>`;
+            })
+            .join('')}
+        </div>
+        <button class="sheet-btn cancel" data-cancel>Cancelar</button>
+      </div>`;
+    };
+    draw();
+    sheet.onclick = (e) => {
+      if (e.target === sheet) return done(null);
+      const b = e.target.closest('button');
+      if (!b) return;
+      if (b.dataset.nav) {
+        ym = addMonths(ym, Number(b.dataset.nav));
+        draw();
+      } else if (b.dataset.d) done(b.dataset.d);
+      else if (b.hasAttribute('data-cancel')) done(null);
+    };
+    if (sheet.open) sheet.close();
+    sheet.showModal();
+    sheet.onclose = () => !sheet.open && done(null);
+  });
+}
+
 // ---------- Selector de categoría ----------
 
 function catChip(c, selected) {
@@ -498,6 +566,27 @@ function pickCategory(type, selected, suggested = null) {
   });
 }
 
+/**
+ * El total grande cuenta rápido hasta el valor nuevo (al cambiar de mes) en vez de aparecer de golpe.
+ * `key` separa Inicio de Análisis; la primera vez que se muestra no se anima.
+ */
+const shownTotals = {};
+function animateTotal(key, total) {
+  const el = root.querySelector('.spent-amount');
+  const from = shownTotals[key];
+  shownTotals[key] = total;
+  if (!el || from === undefined || from === total || state.settings.hideAmounts) return;
+  if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  const t0 = performance.now();
+  const step = (t) => {
+    if (!el.isConnected) return;
+    const p = Math.min(1, (t - t0) / 450);
+    el.innerHTML = money(from + (total - from) * (1 - (1 - p) ** 3));
+    if (p < 1) requestAnimationFrame(step);
+  };
+  requestAnimationFrame(step);
+}
+
 // ---------- Inicio ----------
 
 function renderHome() {
@@ -571,6 +660,7 @@ function renderHome() {
       },
     },
   );
+  animateTotal('home', total);
 }
 
 // ---------- Anotar: una sola pantalla (monto → categoría → Guardar) ----------
@@ -664,7 +754,7 @@ function draftForm() {
   const d = draft;
   const isEdit = !!d.editId;
   const fijo = d.recurringId && store.getRecurring(d.recurringId);
-  const dateLabel = () => (d.date === todayStr() ? 'Hoy' : fmtDateLong(d.date));
+  const dateLabel = () => (d.date === todayStr() ? 'Hoy' : d.date === addDays(todayStr(), -1) ? 'Ayer' : fmtDateLong(d.date));
   const refresh = () => {
     root.querySelector('#f-cats').innerHTML = catGridHTML();
     root.querySelector('#f-hint').innerHTML = budgetHint();
@@ -680,8 +770,7 @@ function draftForm() {
       <div class="content">
         <label class="hero-amount ${d.type}"><span>${esc(cur())}</span>
           <input id="f-amount" inputmode="numeric" autocomplete="off" value="${d.amount ? fmtNumber(d.amount) : ''}" placeholder="0" aria-label="Monto"></label>
-        <label class="date-chip">${icon('calendar')}<span id="f-date-label">${dateLabel()}</span>${icon('chev-down')}
-          <input type="date" id="f-date" value="${d.date}" aria-label="Fecha"></label>
+        <button class="date-chip" data-action="f-date">${icon('calendar')}<span id="f-date-label">${dateLabel()}</span>${icon('chev-down')}</button>
         <div class="cat-grid" id="f-cats">${catGridHTML()}</div>
         <input id="f-desc" class="desc-input" autocomplete="off" autocapitalize="sentences" maxlength="80"
           value="${esc(d.desc)}" placeholder="Descripción (opcional)" aria-label="Descripción">
@@ -703,6 +792,14 @@ function draftForm() {
       'form-close': () => {
         draft = null;
         goBack(isEdit ? '/movimientos' : '/');
+      },
+      'f-date': async () => {
+        const v = await pickDate(d.date);
+        if (!v) return;
+        d.date = v;
+        root.querySelector('#f-date-label').textContent = dateLabel();
+        root.querySelector('#f-hint').innerHTML = budgetHint();
+        if (d.recurring) root.querySelector('#f-rec').innerHTML = recurringPanel();
       },
       'f-cat': (el) => {
         d.categoryId = el.dataset.id;
@@ -752,12 +849,7 @@ function draftForm() {
       },
       change: (e) => {
         const id = e.target.id;
-        if (id === 'f-date' && e.target.value) {
-          d.date = e.target.value;
-          root.querySelector('#f-date-label').textContent = dateLabel();
-          root.querySelector('#f-hint').innerHTML = budgetHint();
-          if (d.recurring) root.querySelector('#f-rec').innerHTML = recurringPanel();
-        } else if (id === 'f-variable') d.recurring.variable = e.target.checked;
+        if (id === 'f-variable') d.recurring.variable = e.target.checked;
       },
       keydown: (e) => {
         if (e.key === 'Enter' && (e.target.id === 'f-amount' || e.target.id === 'f-desc')) {
@@ -1053,6 +1145,7 @@ function renderInsights() {
       },
     },
   );
+  animateTotal('analisis', total);
 }
 
 // ---------- Carga en lote ----------
@@ -1064,7 +1157,7 @@ function batchItemHTML(it, i) {
     <div class="bi-main">
       <input class="bi-desc" data-i="${i}" value="${esc(it.desc)}" placeholder="Descripción" autocomplete="off">
       <button class="bi-cat" data-action="b-cat" data-i="${i}" id="bcat-${i}" style="--c:${c.color}">${esc(c.name)} ${icon('chev-down')}</button>
-      <label class="bi-date">${icon('calendar')}<span>${fmtDateShort(it.date)}</span><input type="date" data-i="${i}" class="bi-date-in" value="${it.date}"></label>
+      <button class="bi-date" data-action="b-date" data-i="${i}">${icon('calendar')}<span>${fmtDateShort(it.date)}</span></button>
     </div>
     <div class="bi-side">
       <div class="bi-amt">
@@ -1163,6 +1256,13 @@ function batchPreview() {
       </div>
     </div>`,
     {
+      'b-date': async (el) => {
+        const it = batch.items[Number(el.dataset.i)];
+        const v = await pickDate(it.date);
+        if (!v) return;
+        it.date = v;
+        el.querySelector('span').textContent = fmtDateShort(v);
+      },
       'b-cat': async (el) => {
         const i = Number(el.dataset.i);
         const it = batch.items[i];
@@ -1223,12 +1323,6 @@ function batchPreview() {
           it.amount = formatAmountInput(e.target);
           root.querySelector('#btotal').innerHTML = batchTotalHTML();
         }
-      },
-      change: (e) => {
-        if (!e.target.classList.contains('bi-date-in') || !e.target.value) return;
-        const it = batch.items[Number(e.target.dataset.i)];
-        it.date = e.target.value;
-        e.target.previousElementSibling.textContent = fmtDateShort(it.date);
       },
     },
   );

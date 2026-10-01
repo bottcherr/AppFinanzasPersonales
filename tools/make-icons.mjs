@@ -1,7 +1,8 @@
-// Genera icons/icon-192.png e icons/icon-512.png (moneda verde con $ sobre fondo oscuro).
+// Genera icons/icon-192.png, icons/icon-512.png (moneda verde con $ sobre fondo oscuro) y las pantallas de
+// carga del iPhone en icons/splash/.
 // Mismo dibujo que icons/icon.svg, en coordenadas de 512.
 // Uso: node tools/make-icons.mjs
-import { writeFileSync } from 'node:fs';
+import { writeFileSync, mkdirSync } from 'node:fs';
 import { deflateSync } from 'node:zlib';
 
 const BG = [0x07, 0x0a, 0x0f];
@@ -66,27 +67,41 @@ function chunk(type, data) {
   return Buffer.concat([len, body, crc]);
 }
 
-function png(size) {
-  const scale = 512 / size;
+/**
+ * PNG de w×h con el ícono de `iconPx` px centrado; afuera del ícono, fondo oscuro.
+ * Sin parámetros extra es el ícono cuadrado de siempre.
+ */
+function png(w, h = w, iconPx = Math.min(w, h)) {
+  const scale = 512 / iconPx;
+  const ox = (w - iconPx) / 2;
+  const oy = (h - iconPx) / 2;
   const SS = 4; // supermuestreo para bordes suaves
-  const raw = Buffer.alloc(size * (size * 3 + 1));
-  for (let y = 0; y < size; y++) {
-    raw[y * (size * 3 + 1)] = 0;
-    for (let x = 0; x < size; x++) {
+  const row = w * 3 + 1;
+  const raw = Buffer.alloc(h * row);
+  for (let y = 0; y < h; y++) {
+    raw[y * row] = 0;
+    for (let x = 0; x < w; x++) {
+      const o = y * row + 1 + x * 3;
+      // Afuera del ícono es todo fondo: no hace falta calcular nada.
+      if (x < ox - 1 || x > ox + iconPx || y < oy - 1 || y > oy + iconPx) {
+        raw[o] = BG[0];
+        raw[o + 1] = BG[1];
+        raw[o + 2] = BG[2];
+        continue;
+      }
       const sum = [0, 0, 0];
       for (let sy = 0; sy < SS; sy++) {
         for (let sx = 0; sx < SS; sx++) {
-          const c = colorAt((x + (sx + 0.5) / SS) * scale, (y + (sy + 0.5) / SS) * scale);
+          const c = colorAt((x - ox + (sx + 0.5) / SS) * scale, (y - oy + (sy + 0.5) / SS) * scale);
           for (let i = 0; i < 3; i++) sum[i] += c[i];
         }
       }
-      const o = y * (size * 3 + 1) + 1 + x * 3;
       for (let i = 0; i < 3; i++) raw[o + i] = Math.round(sum[i] / (SS * SS));
     }
   }
   const ihdr = Buffer.alloc(13);
-  ihdr.writeUInt32BE(size, 0);
-  ihdr.writeUInt32BE(size, 4);
+  ihdr.writeUInt32BE(w, 0);
+  ihdr.writeUInt32BE(h, 4);
   ihdr[8] = 8; // bits por canal
   ihdr[9] = 2; // RGB
   return Buffer.concat([
@@ -100,4 +115,30 @@ function png(size) {
 for (const size of [192, 512]) {
   writeFileSync(new URL(`../icons/icon-${size}.png`, import.meta.url), png(size));
   console.log(`icons/icon-${size}.png`);
+}
+
+/**
+ * Pantallas de carga del iPhone (apple-touch-startup-image): fondo oscuro y la moneda chica al centro.
+ * [ancho, alto, densidad] en puntos; index.html tiene un <link> por cada uno con su media query.
+ */
+export const SPLASH = [
+  [440, 956, 3], // 16/17 Pro Max
+  [402, 874, 3], // 16/17 Pro
+  [420, 912, 3], // Air
+  [430, 932, 3], // 14 Pro Max, 15/16 Plus, 15 Pro Max
+  [393, 852, 3], // 14 Pro, 15, 15 Pro, 16
+  [428, 926, 3], // 12/13 Pro Max, 14 Plus
+  [390, 844, 3], // 12, 13, 14, 12/13 Pro
+  [375, 812, 3], // X, XS, 11 Pro, 12/13 mini
+  [414, 896, 3], // XS Max, 11 Pro Max
+  [414, 896, 2], // XR, 11
+  [375, 667, 2], // SE 2/3, 8
+];
+
+mkdirSync(new URL('../icons/splash/', import.meta.url), { recursive: true });
+for (const [w, h, d] of SPLASH) {
+  // La moneda ocupa ~2/3 del ícono: con 104 pt de ícono, la moneda mide unos 68 pt.
+  const name = `icons/splash/splash-${w * d}x${h * d}.png`;
+  writeFileSync(new URL(`../${name}`, import.meta.url), png(w * d, h * d, 104 * d));
+  console.log(name);
 }

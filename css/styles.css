@@ -37,6 +37,11 @@
   --font-fallback: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   --font: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
   --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+  /* Vidrio estilo Liquid Glass (iOS 26): barra de abajo, pastilla del mes y botón Anotar. */
+  --glass-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.13), rgba(255, 255, 255, 0.04) 45%, rgba(255, 255, 255, 0.06));
+  --glass-border: rgba(255, 255, 255, 0.16);
+  --glass-blur: blur(18px) saturate(180%);
+  --glass-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35), inset 0 -1px 1px rgba(0, 0, 0, 0.25), 0 10px 30px rgba(0, 0, 0, 0.45);
 }
 
 /* ---------- Base ---------- */
@@ -584,13 +589,19 @@ button.row:active {
   gap: 8px;
 }
 
+/* La fecha queda pegada arriba mientras se ven los gastos de ese día (--sticky-top lo pone mount()). */
 .day-head {
+  position: sticky;
+  top: var(--sticky-top, 0px);
+  z-index: 5;
   display: flex;
   justify-content: space-between;
   font-size: 13px;
   font-weight: 600;
   color: var(--muted);
-  padding: 4px 4px 0;
+  padding: 8px 4px 6px;
+  margin: -4px 0 -4px;
+  background: var(--bg);
 }
 
 .day-head span:first-child::first-letter {
@@ -787,8 +798,11 @@ button.row:active {
   height: 36px;
   padding: 0 2px;
   border-radius: 999px;
-  background: var(--surface);
-  border: 1px solid var(--border);
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.3), inset 0 -1px 1px rgba(0, 0, 0, 0.25);
   font-size: 14px;
   font-weight: 600;
 }
@@ -905,47 +919,69 @@ button.row:active {
   grid-template-columns: repeat(4, 1fr);
   gap: 4px;
   padding: 6px;
-  border-radius: 22px;
-  background: color-mix(in srgb, var(--surface) 88%, transparent);
-  border: 1px solid var(--border);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  box-shadow: var(--shadow);
+  border-radius: 28px;
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  box-shadow: var(--glass-shadow);
   z-index: 20;
 }
 
 .tab {
-  height: 44px;
-  border-radius: 16px;
-  display: grid;
-  place-items: center;
-  color: var(--muted);
-  transition: background 0.2s, color 0.2s;
+  height: 50px;
+  border-radius: 22px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  color: #c7d0dc;
+  transition: background 0.25s, color 0.25s, box-shadow 0.25s;
 }
 
+.tab svg {
+  width: 20px;
+  height: 20px;
+}
+
+.tab span {
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+}
+
+/* La pestaña activa es una "burbuja" de vidrio dentro de la barra. */
 .tab.on {
-  background: var(--accent-soft);
-  color: var(--accent);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.2), rgba(255, 255, 255, 0.07));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.38);
+  color: #7ff0d0;
 }
 
 .fab {
   position: fixed;
   right: max(16px, calc(50% - 264px));
-  bottom: calc(env(safe-area-inset-bottom) + 82px);
+  bottom: calc(env(safe-area-inset-bottom) + 88px);
   height: 56px;
   min-width: 56px;
   padding: 0 16px;
   border-radius: 28px;
-  background: var(--accent);
-  color: var(--on-accent);
+  /* Vidrio verde: deja ver lo que pasa por detrás, con brillo arriba. */
+  background: linear-gradient(180deg, rgba(31, 191, 143, 0.62), rgba(31, 191, 143, 0.32));
+  border: 1px solid rgba(180, 255, 230, 0.38);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  color: #f2fffa;
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 6px;
   font-weight: 700;
-  box-shadow: 0 10px 28px rgba(31, 191, 143, 0.35);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.45), inset 0 -1px 1px rgba(0, 0, 0, 0.2), 0 10px 28px rgba(31, 191, 143, 0.3);
   z-index: 21;
-  transition: transform 0.15s var(--ease);
+  overflow: hidden;
+  white-space: nowrap;
+  transition: transform 0.15s var(--ease), padding 0.25s var(--ease), gap 0.25s var(--ease);
 }
 
 .fab svg {
@@ -960,6 +996,22 @@ button.row:active {
 
 .fab.wide {
   padding: 0 20px 0 16px;
+}
+
+.fab span {
+  max-width: 80px;
+  transition: max-width 0.25s var(--ease), opacity 0.2s;
+}
+
+/* Al bajar en la lista queda solo el "+" (ver syncFab en app.js). */
+.fab.wide.small {
+  padding: 0 16px;
+  gap: 0;
+}
+
+.fab.wide.small span {
+  max-width: 0;
+  opacity: 0;
 }
 
 /* ---------- Anotar (una sola pantalla) ---------- */
@@ -1217,16 +1269,6 @@ button.row:active {
   color: var(--muted);
 }
 
-.date-chip input,
-.bi-date input {
-  position: absolute;
-  inset: 0;
-  opacity: 0;
-  width: 100%;
-  height: 100%;
-  padding: 0;
-  cursor: pointer;
-}
 
 .field {
   display: flex;
@@ -2251,6 +2293,104 @@ button.row:active {
 
 .q-amount.ingreso {
   color: var(--pos);
+}
+
+/* ---------- Calendario propio ---------- */
+
+.cal {
+  gap: 12px;
+}
+
+.cal-quick {
+  display: flex;
+  gap: 8px;
+}
+
+.cal-quick button {
+  flex: 1;
+  height: 40px;
+  border-radius: 12px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  font-weight: 600;
+  text-align: center;
+}
+
+.cal-quick button.on {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.cal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 0;
+}
+
+.cal-head b {
+  font-family: var(--font-brand);
+  font-size: 19px;
+}
+
+.cal-head button {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+}
+
+.cal-head button:active {
+  background: var(--surface-3);
+}
+
+.cal-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 4px;
+  justify-items: center;
+}
+
+.cal-wd {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  padding-bottom: 4px;
+}
+
+.cal-day {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 15px;
+  font-variant-numeric: tabular-nums;
+  transition: background 0.15s;
+}
+
+.cal-day:active {
+  background: var(--surface-3);
+}
+
+.cal-day.future {
+  color: var(--muted);
+}
+
+.cal-day.today {
+  box-shadow: inset 0 0 0 1.5px var(--accent);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.cal-day.sel {
+  background: var(--accent);
+  color: var(--on-accent);
+  font-weight: 700;
+  box-shadow: none;
 }
 
 /* ---------- Avisos y animación al guardar ---------- */

@@ -24,7 +24,7 @@ Datos en `localStorage` (clave `appfinanzas.v1`). Montos como enteros. No hay se
 ## Archivos
 
 - `index.html` — punto de entrada; `<dialog id="sheet">` para hojas y confirmaciones.
-- `css/styles.css` — todo el estilo, tokens en `:root` (oscuro fijo, acento verde `--accent`, títulos y monto grande con Outfit, guardada en `fonts/`).
+- `css/styles.css` — todo el estilo, tokens en `:root` (oscuro fijo, acento verde `--accent`, títulos y monto grande con Outfit, guardada en `fonts/`). Barra de abajo, pastilla del mes y botón Anotar con estilo "Liquid Glass" (tokens `--glass-*`).
 - `js/app.js` — pantallas y router por hash: `#/` (inicio), `#/nuevo` y `#/mov/:id` (anotar/editar en **una sola
   pantalla**: monto, fecha, grilla de categorías, descripción opcional que elige la categoría sola, "Se repite"),
   `#/movimientos` (pestaña "Historial": gastos del mes con buscador y filtro por categoría; el inicio se titula "Gastos" y el mes se elige en una pastilla a la derecha del título), `#/analisis` (total, gráfico de barra 100 %
@@ -43,6 +43,14 @@ Datos en `localStorage` (clave `appfinanzas.v1`). Montos como enteros. No hay se
 - `js/util.js` — fechas (`'YYYY-MM-DD'` local), montos (`parseAmount`, `fmtNumber` es-AR), `esc()`, `occurrenceOnOrAfter()`.
 - `js/icons.js` — íconos SVG de línea.
 - `sw.js` — red primero y caché de respaldo. `tools/serve.py` (puerto 5174), `tools/make-icons.mjs`.
+- Detalles de interfaz: la barra de abajo tiene nombre bajo cada ícono; el total grande cuenta hasta el valor nuevo al
+  cambiar de mes (`animateTotal`); el botón "Anotar" se achica a "+" al bajar (`syncFab`, escucha el scroll de la
+  ventana); las fechas de la lista quedan fijas bajo la barra de título (`--sticky-top`, lo calcula `mount()`).
+- Fechas: no se usan `<input type="date">` (el selector nativo no se puede estilizar y en Chrome de escritorio no
+  abría). `pickDate(value)` abre un calendario propio en la hoja (Hoy/Ayer, mes con flechas, semana desde el lunes).
+- Pantalla de carga del iPhone: `icons/splash/` (una por modelo, las genera `tools/make-icons.mjs` con la lista
+  `SPLASH`) y un `<link rel="apple-touch-startup-image">` por cada una en `index.html`. iOS la toma al agregar la app
+  a inicio: para ver un cambio hay que borrar la app de inicio y volver a agregarla.
 
 ## Reglas (importante)
 
@@ -68,5 +76,6 @@ Datos en `localStorage` (clave `appfinanzas.v1`). Montos como enteros. No hay se
 ## Probar y publicar
 
 - Local: `python tools/serve.py` → http://localhost:5174
-- Repo: https://github.com/bottcherr/AppFinanzasPersonales (rama `main`). La carpeta `Idea Flujo App/` no se sube (.gitignore).
+- Repo: https://github.com/bottcherr/AppFinanzasPersonales (rama `main`). Commits con el email anónimo de GitHub
+  (`220268449+bottcherr@users.noreply.github.com`, configurado en `git config --local`), no con el personal. La carpeta `Idea Flujo App/` no se sube (.gitignore).
 - App publicada (GitHub Pages): https://bottcherr.github.io/AppFinanzasPersonales/
