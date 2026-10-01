@@ -1799,10 +1799,18 @@ function syncViewport() {
 window.visualViewport?.addEventListener('resize', syncViewport);
 syncViewport();
 
-// Al volver a la app, revisar fijos vencidos (puede haber cambiado el día).
+// Al volver a la app: revisar fijos vencidos (puede haber cambiado el día) y, si estuvo más de 10 minutos
+// afuera, volver al mes actual. El iPhone deja la app dormida en vez de cerrarla, y sin esto seguiría en el
+// mes que se estaba mirando (o en el mes anterior, si cambió el mes mientras tanto).
+let hiddenAt = 0;
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState !== 'visible' || sheet.open) return;
-  if (!location.hash || location.hash === '#/') route(true);
+  if (document.visibilityState === 'hidden') {
+    hiddenAt = Date.now();
+    return;
+  }
+  if (hiddenAt && Date.now() - hiddenAt > 10 * 60 * 1000) viewMonth = store.currentMonth();
+  if (sheet.open) return;
+  if (['', '#/', '#/movimientos', '#/analisis'].includes(location.hash)) route(true);
 });
 
 if ('serviceWorker' in navigator && location.protocol !== 'file:') {
