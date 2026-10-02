@@ -49,6 +49,12 @@ Datos en `localStorage` (clave `appfinanzas.v1`). Montos como enteros. No hay se
   `getCapabilities().zoom` existe, si no digital), y "Sacar foto" solo si la cámara no abre.
   Usa `js/vendor/jsQR.js` (jsQR 1.4.0, Apache 2.0, se carga recién al escanear). Cada CUIT recuerda descripción y
   categoría en `state.merchants` (`rememberMerchant()` al guardar).
+- `js/ocr.js` — "Sacar foto de una lista o ticket" en Carga en lote: lee el texto de la foto sin internet con
+  Tesseract.js 7 (`js/vendor/ocr/`: lib, worker, core **solo SIMD-LSTM** (iOS 16.4+) y `spa.traineddata.gz`, ~6 MB,
+  Apache 2.0). Se baja recién al usarlo; el texto va al cuadro y se procesa solo (`batchFromPhoto` en app.js).
+  `workerBlobURL: false` (la CSP no permite blob:). En `sw.js` esa carpeta va **primero caché, sin tocar el pedido**
+  (con `{cache:'no-cache'}` el importScripts del worker falla) y en una caché aparte (`OCR_CACHE`) que no se borra
+  al subir `CACHE`: si se cambian esos archivos, subir `OCR_CACHE`.
 - `js/data.js` — categorías iniciales (solo de gasto), colores, íconos elegibles, palabras clave (`BASE_KEYWORDS`).
 - `js/util.js` — fechas (`'YYYY-MM-DD'` local), montos (`parseAmount`, `fmtNumber` es-AR), `esc()`, `occurrenceOnOrAfter()`.
 - `js/icons.js` — íconos SVG de línea.

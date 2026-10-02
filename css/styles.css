@@ -1817,6 +1817,30 @@ button.row:active {
   animation: fill 0.7s ease-in-out forwards;
 }
 
+/* Barra que sigue el avance real (lectura de la foto). */
+.proc-bar i.live {
+  width: 0;
+  animation: none;
+  transition: width 0.3s ease;
+}
+
+/* Carga en lote: botón para sacar foto de una lista o ticket. */
+.photo-btn {
+  align-self: stretch;
+  justify-content: center;
+  padding: 11px 14px;
+  cursor: pointer;
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  color: var(--accent);
+  background: var(--accent-soft);
+  font-weight: 600;
+}
+
+.photo-btn.busy {
+  opacity: 0.5;
+  pointer-events: none;
+}
+
 @keyframes fill {
   from {
     width: 0;

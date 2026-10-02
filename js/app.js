@@ -5,6 +5,7 @@ import { icon } from './icons.js';
 import { COLORS, UNCLASSIFIED } from './data.js';
 import { suggestCategory, parseBatch } from './rules.js';
 import { loadJsQR, decodeImage, parseFiscalQR, fmtCuit } from './qr.js';
+import { readText } from './ocr.js';
 import {
   esc, normalizeText, parseAmount, fmtNumber, todayStr, addDays, parseDate, monthOf, addMonths,
   daysInMonth, fmtMonth, fmtDateLong, fmtDateShort, fmtDay, occurrenceOnOrAfter, fmtEvery, WEEKDAYS, MONTHS,
@@ -1424,7 +1425,8 @@ function batchInput() {
       ${topbar(`${icon('sparkles')} Carga en lote`, { back: '/' })}
       <main class="content">
         <p class="muted">Un gasto por línea: <b>descripción y monto</b>. La fecha al principio es opcional (<b>12/03</b>).</p>
-        <p class="info-line">${icon('camera')} <span>¿Una lista o un ticket en papel? Tocá el cuadro, elegí <b>Escanear texto</b> y apuntá con la cámara: el texto se escribe solo.</span></p>
+        <label class="pill-btn photo-btn">${icon('camera')} Sacar foto de una lista o ticket
+          <input type="file" id="bphoto" accept="image/*" capture="environment" hidden></label>
         <textarea id="btext" class="batch-text" rows="9" autocapitalize="sentences"
           placeholder="Almuerzo 50.000&#10;Taxi 20.000&#10;Café 8.500&#10;12/09 Farmacia 12.300">${esc(batch.text)}</textarea>
         <div id="bproc"></div>
@@ -1436,6 +1438,10 @@ function batchInput() {
         const text = root.querySelector('#btext').value;
         batch.text = text;
         const { items, errors, ticket, total } = parseBatch(text);
+        if (!items.length && batch.fromPhoto) {
+          toast('No encontré montos en la foto. Revisá el texto o probá otra foto.');
+          return;
+        }
         if (!items.length) {
           toast(errors.length ? 'No encontré montos en esas líneas' : 'Escribí al menos un gasto');
           return;
@@ -1450,8 +1456,53 @@ function batchInput() {
         processingAnimation(() => route(true));
       },
     },
-    { input: (e) => e.target.id === 'btext' && (batch.text = e.target.value) },
+    {
+      input: (e) => e.target.id === 'btext' && (batch.text = e.target.value),
+      change: (e) => e.target.id === 'bphoto' && batchFromPhoto(e.target),
+    },
   );
+}
+
+/** Foto de una lista o ticket: se lee el texto (sin internet), se pone en el cuadro y se procesa solo. */
+async function batchFromPhoto(input) {
+  const file = input.files?.[0];
+  input.value = '';
+  if (!file) return;
+  const box = root.querySelector('#bproc');
+  const btns = root.querySelectorAll('[data-action="process"], .photo-btn');
+  btns.forEach((b) => b.classList.add('busy'));
+  root.querySelector('[data-action="process"]').disabled = true;
+  box.innerHTML = `<div class="processing"><span class="spinner"></span><p id="ocr-msg">Preparando…</p>
+    <div class="proc-bar"><i class="live" id="ocr-bar"></i></div></div>`;
+  const first = !localStorage.getItem('appfinanzas.ocr');
+  try {
+    const text = await readText(file, (p, msg) => {
+      const bar = root.querySelector('#ocr-bar');
+      const m = root.querySelector('#ocr-msg');
+      if (bar) bar.style.width = `${Math.round(p * 100)}%`;
+      if (m) m.textContent = first && p < 0.3 ? 'Preparando el lector (solo la primera vez)…' : msg;
+    });
+    try {
+      localStorage.setItem('appfinanzas.ocr', '1');
+    } catch {}
+    if (!root.querySelector('#btext')) return; // se fue de la pantalla mientras leía
+    const area = root.querySelector('#btext');
+    const clean = text.replace(/[ \t]+\n/g, '\n').replace(/\n{2,}/g, '\n').trim();
+    area.value = [area.value.trim(), clean].filter(Boolean).join('\n');
+    batch.text = area.value;
+    batch.fromPhoto = true;
+    box.innerHTML = '';
+    root.querySelector('[data-action="process"]').disabled = false;
+    btns.forEach((b) => b.classList.remove('busy'));
+    if (!clean) return toast('No pude leer texto en la foto. Probá con más luz y más de cerca.');
+    actions.process();
+  } catch {
+    if (!root.querySelector('#bproc')) return;
+    box.innerHTML = '';
+    root.querySelector('[data-action="process"]').disabled = false;
+    btns.forEach((b) => b.classList.remove('busy'));
+    toast(navigator.onLine ? 'No se pudo leer la foto' : 'La primera vez necesita internet para preparar el lector');
+  }
 }
 
 function processingAnimation(then) {
