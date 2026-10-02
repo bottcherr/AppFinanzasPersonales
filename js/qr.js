@@ -89,5 +89,11 @@ export function parseFiscalQR(text) {
   return { amount, date, cuit };
 }
 
+/**
+ * QR de los tickets de controlador fiscal ("TIQUE" del súper): http://qr.afip.gob.ar/?qr=XXXX. Es solo un
+ * código para verificar el ticket en la página de ARCA: no trae monto ni fecha.
+ */
+export const isTiqueQR = (text) => /^https?:\/\/qr\.(afip|arca)\.gob\.ar\/?\?qr=/i.test(String(text || '').trim());
+
 /** 30123456789 → 30-12345678-9 */
 export const fmtCuit = (c) => `${c.slice(0, 2)}-${c.slice(2, 10)}-${c.slice(10)}`;

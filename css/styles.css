@@ -1872,6 +1872,30 @@ button.row:active {
   font-size: 13px;
 }
 
+.batch-total .t-ok {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.batch-total .t-ok svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* Escáner: el botón de foto se destaca cuando hace falta (TIQUE sin monto en el QR, o sin cámara). */
+.sheet-btn.pulse {
+  background: var(--accent);
+  color: var(--on-accent);
+  animation: pulse 1.4s ease-in-out 2;
+}
+
+@keyframes pulse {
+  50% {
+    transform: scale(1.03);
+  }
+}
+
 .info-line {
   display: flex;
   align-items: center;

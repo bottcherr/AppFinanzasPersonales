@@ -4,7 +4,7 @@ import { state } from './store.js';
 import { icon } from './icons.js';
 import { COLORS, UNCLASSIFIED } from './data.js';
 import { suggestCategory, parseBatch } from './rules.js';
-import { loadJsQR, decodeImage, parseFiscalQR, fmtCuit } from './qr.js';
+import { loadJsQR, decodeImage, parseFiscalQR, isTiqueQR, fmtCuit } from './qr.js';
 import { readText } from './ocr.js';
 import {
   esc, normalizeText, parseAmount, fmtNumber, todayStr, addDays, parseDate, monthOf, addMonths,
@@ -562,8 +562,8 @@ function scanQR() {
         <div class="scan-zoom" hidden>${[1, 2, 3].map((z) => `<button data-zoom="${z}">${z}x</button>`).join('')}</div>
         <p class="scan-msg">Abriendo la cámara…</p>
       </div>
-      <p class="muted-sm">Apuntá al QR de ARCA que está al pie del ticket: se lee solo. Si está lejos, hacé zoom con dos dedos.</p>
-      <label class="sheet-btn" hidden>${icon('camera')} Sacar foto
+      <p class="muted-sm">Apuntá al QR del pie del ticket: se lee solo. O sacale una foto entera para anotar cada producto.</p>
+      <label class="sheet-btn photo-ticket">${icon('camera')} Foto del ticket entero (productos)
         <input type="file" accept="image/*" capture="environment" hidden></label>
       <button class="sheet-btn cancel" data-cancel>Cancelar</button>
     </div>`;
@@ -612,24 +612,11 @@ function scanQR() {
       const zb = e.target.closest('[data-zoom]');
       if (zb) setZoom(Number(zb.dataset.zoom));
     };
-    sheet.onchange = async (e) => {
+    // La foto se lee en Carga en lote (texto de los productos + QR si trae el total).
+    sheet.onchange = (e) => {
       const file = e.target.files?.[0];
       e.target.value = '';
-      if (!file) return;
-      setMsg('Buscando el QR…');
-      try {
-        const jsQR = await loadJsQR();
-        const bmp = await createImageBitmap(file);
-        const text =
-          decodeImage(jsQR, bmp, bmp.width, bmp.height, canvas, { thorough: true }) ||
-          decodeImage(jsQR, bmp, bmp.width, bmp.height, canvas, { thorough: true, crop: 2 });
-        bmp.close?.();
-        // Los avisos van dentro de la hoja: un toast quedaría tapado por el diálogo abierto.
-        setMsg(text ? '' : 'No encontré un QR en la foto. Probá más de cerca y con luz.');
-        if (text) done(text);
-      } catch {
-        setMsg('No se pudo leer la foto.');
-      }
+      if (file) done({ file });
     };
     if (sheet.open) sheet.close();
     sheet.showModal();
@@ -643,10 +630,20 @@ function scanQR() {
         const base = native ? 1 : zoom;
         const crop = Math.min(base * ((frame++ % 3) + 1), 6);
         const text = decodeImage(jsQR, video, video.videoWidth, video.videoHeight, canvas, { crop });
-        if (text) {
+        if (text && parseFiscalQR(text)) {
           if (navigator.vibrate) navigator.vibrate(30);
-          return done(text);
+          return done({ text });
         }
+        // TIQUE del súper: el QR no trae el monto. Se frena la cámara y se pide la foto entera.
+        // (Los avisos van dentro de la hoja: un toast quedaría tapado por el diálogo abierto.)
+        if (text && isTiqueQR(text)) {
+          if (navigator.vibrate) navigator.vibrate(30);
+          stop();
+          setMsg('Este ticket no trae el monto en el QR. Sacale una foto entera para leer los productos.');
+          photoBtn.classList.add('pulse');
+          return;
+        }
+        if (text) setMsg('Ese QR no es el de un ticket.');
       }
       timer = setTimeout(() => tick(jsQR), 100);
     };
@@ -671,8 +668,8 @@ function scanQR() {
         tick(jsQR);
       } catch {
         if (settled) return;
-        setMsg('No se pudo abrir la cámara. Usá “Sacar foto”.');
-        photoBtn.hidden = false;
+        setMsg('No se pudo abrir la cámara. Sacale una foto al ticket.');
+        photoBtn.classList.add('pulse');
       }
     })();
   });
@@ -1007,9 +1004,16 @@ function draftForm() {
         navigate('/lote', { replace: true });
       },
       'scan-qr': async () => {
-        const text = await scanQR();
-        if (!text) return;
-        const t = parseFiscalQR(text);
+        const res = await scanQR();
+        if (!res) return;
+        if (res.file) {
+          // Foto del ticket entero: se leen los productos en Carga en lote.
+          draft = null;
+          batch = { text: '', source: 'lote' };
+          navigate('/lote', { replace: true });
+          return batchFromPhotoFile(res.file);
+        }
+        const t = parseFiscalQR(res.text);
         if (!t) return toast('Ese QR no es el de un ticket o factura (ARCA)');
         const known = store.getMerchant(t.cuit);
         draft = newDraft({
@@ -1408,8 +1412,18 @@ function batchItemHTML(it, i) {
 function batchTotalHTML() {
   const total = batch.items.reduce((s, it) => s + it.amount, 0);
   const unc = batch.items.filter((it) => !it.categoryId).length;
+  // Con el TOTAL del ticket a mano, se avisa si la suma de los productos no coincide (el lector de fotos
+  // puede saltearse o leer mal un renglón).
+  let check = '';
+  if (batch.ticket && batch.total) {
+    check =
+      total === batch.total
+        ? `<span class="t-ok">${icon('check')} Coincide con el total del ticket</span>`
+        : `<span class="warn-text">El ticket dice ${money(batch.total)}: revisá los montos o juntalo en un gasto</span>`;
+  }
   return `<small>TOTAL DEL LOTE · ${batch.items.length} ${batch.items.length === 1 ? 'gasto' : 'gastos'}</small>
     <b>${money(total)}</b>
+    ${check}
     ${unc ? `<span class="warn-text">${unc} sin categoría</span>` : ''}`;
 }
 
@@ -1437,7 +1451,17 @@ function batchInput() {
       process: () => {
         const text = root.querySelector('#btext').value;
         batch.text = text;
-        const { items, errors, ticket, total } = parseBatch(text);
+        const parsed = parseBatch(text);
+        const { items, errors, ticket } = parsed;
+        // Si la foto traía el QR de una factura electrónica, su total y su fecha son exactos.
+        const qr = batch.fromPhoto ? batch.qr : null;
+        const total = qr?.amount || parsed.total;
+        if (qr?.date) items.forEach((it) => (it.date = qr.date));
+        // Sin productos legibles, pero con el total del ticket: queda un solo gasto por el total.
+        if (!items.length && batch.fromPhoto && total) {
+          items.push({ desc: '', amount: total, type: 'gasto', date: qr?.date || todayStr(), time: null });
+          toast('No pude leer los productos: te dejo el total del ticket');
+        }
         if (!items.length && batch.fromPhoto) {
           toast('No encontré montos en la foto. Revisá el texto o probá otra foto.');
           return;
@@ -1451,7 +1475,7 @@ function batchInput() {
           return { ...it, type: 'gasto', categoryId: s, suggested: s, catManual: false };
         });
         batch.errors = errors;
-        batch.ticket = ticket;
+        batch.ticket = ticket || !!qr;
         batch.total = total;
         processingAnimation(() => route(true));
       },
@@ -1463,11 +1487,34 @@ function batchInput() {
   );
 }
 
-/** Foto de una lista o ticket: se lee el texto (sin internet), se pone en el cuadro y se procesa solo. */
-async function batchFromPhoto(input) {
+function batchFromPhoto(input) {
   const file = input.files?.[0];
   input.value = '';
-  if (!file) return;
+  if (file) batchFromPhotoFile(file);
+}
+
+/** Busca en la foto el QR de una factura electrónica (trae total y fecha exactos). null si no hay. */
+async function fiscalQrInPhoto(file) {
+  try {
+    const jsQR = await loadJsQR();
+    const bmp = await createImageBitmap(file);
+    const c = document.createElement('canvas');
+    const text =
+      decodeImage(jsQR, bmp, bmp.width, bmp.height, c, { thorough: true }) ||
+      decodeImage(jsQR, bmp, bmp.width, bmp.height, c, { thorough: true, crop: 2 });
+    bmp.close?.();
+    return text ? parseFiscalQR(text) : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Foto de una lista o ticket: se lee el texto (sin internet), se pone en el cuadro y se procesa solo.
+ * A la vez se busca el QR de factura, que si está trae el total y la fecha exactos.
+ */
+async function batchFromPhotoFile(file) {
+  const qrP = fiscalQrInPhoto(file);
   const box = root.querySelector('#bproc');
   const btns = root.querySelectorAll('[data-action="process"], .photo-btn');
   btns.forEach((b) => b.classList.add('busy'));
@@ -1491,10 +1538,11 @@ async function batchFromPhoto(input) {
     area.value = [area.value.trim(), clean].filter(Boolean).join('\n');
     batch.text = area.value;
     batch.fromPhoto = true;
+    batch.qr = await qrP;
     box.innerHTML = '';
     root.querySelector('[data-action="process"]').disabled = false;
     btns.forEach((b) => b.classList.remove('busy'));
-    if (!clean) return toast('No pude leer texto en la foto. Probá con más luz y más de cerca.');
+    if (!clean && !batch.qr) return toast('No pude leer texto en la foto. Probá con más luz y más de cerca.');
     actions.process();
   } catch {
     if (!root.querySelector('#bproc')) return;

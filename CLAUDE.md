@@ -42,16 +42,23 @@ Datos en `localStorage` (clave `appfinanzas.v1`). Montos como enteros. No hay se
   larga) y `parseLine()/parseBatch()` para la carga en lote. Si el texto parece un ticket (`looksLikeTicket`: dice
   CUIT o TOTAL; texto pegado con "Escanear texto" del iPhone) saltea totales, IVA, pagos y descuentos, limpia
   códigos y "2 x 1.250", usa la fecha impresa y devuelve el `total` (lo usa "Juntar en un solo gasto" del lote).
-  Solo en modo ticket, para que "Pago de luz 5000" en una lista común no se saltee.
+  Solo en modo ticket, para que "Pago de luz 5000" en una lista común no se saltee. En modo ticket el precio es el
+  último número con centavos ("1000,00") del renglón, se corrigen errores típicos del OCR ("6000) 00"), se saca
+  la basura del principio y un nombre sin precio se junta con el precio del renglón de abajo.
 - `js/qr.js` — QR fiscal de ARCA (`?p=` base64 JSON: fecha, CUIT, importe, moneda/ctz; **no trae productos**, se
   anota un solo gasto por el total). `scanQR()` en app.js: cámara en vivo que escanea sola (alterna
   el cuadro entero y el centro ampliado 2x/3x), zoom con dos dedos o 1x/2x/3x (zoom real de la cámara si
   `getCapabilities().zoom` existe, si no digital), y "Sacar foto" solo si la cámara no abre.
   Usa `js/vendor/jsQR.js` (jsQR 1.4.0, Apache 2.0, se carga recién al escanear). Cada CUIT recuerda descripción y
   categoría en `state.merchants` (`rememberMerchant()` al guardar).
+  **Ojo:** los TIQUE de controlador fiscal (súper) traen otro QR, `http://qr.afip.gob.ar/?qr=XXXX` (`isTiqueQR`),
+  que es solo un código de verificación online: no trae monto ni fecha. Al detectarlo, el escáner frena y pide
+  "Foto del ticket entero", que va a Carga en lote (`batchFromPhotoFile`): lee los productos con OCR y, si la
+  foto trae un QR de factura, usa su total y fecha. La revisión del lote avisa si la suma no coincide con el TOTAL.
 - `js/ocr.js` — "Sacar foto de una lista o ticket" en Carga en lote: lee el texto de la foto sin internet con
   Tesseract.js 7 (`js/vendor/ocr/`: lib, worker, core **solo SIMD-LSTM** (iOS 16.4+) y `spa.traineddata.gz`, ~6 MB,
-  Apache 2.0). Se baja recién al usarlo; el texto va al cuadro y se procesa solo (`batchFromPhoto` en app.js).
+  Apache 2.0). `prepare()` recorta la foto al papel (`paperBox`: el tramo más claro) porque el fondo mete letras
+  falsas. Se baja recién al usarlo; el texto va al cuadro y se procesa solo (`batchFromPhoto` en app.js).
   `workerBlobURL: false` (la CSP no permite blob:). En `sw.js` esa carpeta va **primero caché, sin tocar el pedido**
   (con `{cache:'no-cache'}` el importScripts del worker falla) y en una caché aparte (`OCR_CACHE`) que no se borra
   al subir `CACHE`: si se cambian esos archivos, subir `OCR_CACHE`.

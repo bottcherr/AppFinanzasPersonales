@@ -86,70 +86,134 @@ export function parseLine(line, today = todayStr()) {
   return { desc, amount, type, date, time };
 }
 
-// ---------- Tickets (texto copiado de un ticket con "Escanear texto" del iPhone) ----------
+// ---------- Tickets (texto de una foto o de "Escanear texto" del iPhone) ----------
 
 /** Parece un ticket si menciona CUIT o tiene una línea de TOTAL. */
-export const looksLikeTicket = (text) => /\bcuit\b|^\s*(sub\s*)?total\b/im.test(text);
+export const looksLikeTicket = (text) => /\bc\.?\s?u\.?\s?i\.?\s?t\b|^\W{0,4}\s*(sub\s*)?total\b/im.test(text);
 
-// Renglones de un ticket que no son productos (se comparan sin tildes y en minúscula).
-const TICKET_SKIP =
-  /\b(sub ?total|total|iva|cuit|vuelto|efectivo|tarjeta|debito|credito|cambio|recibido|su pago|pago|ingresos brutos|ii ?bb|consumidor final|cons\.? ?final|resp(onsable)?\.? ?inscripto|monotributo|cajero|caja|ticket|factura|comprobante|nro|p\.? ?v\.?|cant(idad)?|items?|redondeo|saldo|cae|importe|percepcion|retencion|descuento|dto|bonif(icacion)?|promo(cion)?|ahorro|fecha|hora)\b/;
+// Renglones de un ticket que no son productos (se comparan con normalizeText: sin tildes ni signos).
+const TICKET_SKIP = new RegExp(
+  '\\b(' +
+    [
+      'sub ?total', 'total', 'iva', 'cuit', 'c u i t', 'vuelto', 'efectivo', 'tarjeta', 'debito', 'credito', 'cambio',
+      'recibi', 'recibimos', 'recibido', 'su pago', 'pagos?', 'suma', 'ingresos brutos', 'ing brutos', 'brutos', 'ii ?bb',
+      'consumidor', 'resp(onsable)? ?inscripto', 'monotributo', 'cajero', 'caja', 'ticket', 'tique', 'factura',
+      'comprobante', 'nro', 'p v', 'cant(idad)?', 'items?', 'redondeo', 'saldo', 'cae', 'importe', 'percepcion',
+      'retencion', 'descuento', 'dto', 'bonif(icacion)?', 'promo(cion)?', 'ahorro', 'fecha', 'hora', 'domicilio',
+      'direccion', 'c p', 'actividades', 'registro', 'regimen', 'transparencia', 'tributos', 'indirectos', 'contenido',
+      'ley', 'gracias', 'tel(efono)?',
+    ].join('|') +
+    ')\\b',
+);
 
-/** Limpia una línea de ticket. Devuelve el texto listo para parseLine, o null si hay que ignorarla. */
-function ticketLine(raw) {
-  let s = raw.trim();
-  const n = normalizeText(s);
-  if (!/[a-z]{2}/.test(n)) return null; // sin palabras: cantidades ("2 x 1.250"), fechas, códigos
-  if (TICKET_SKIP.test(n)) return null;
-  s = s
-    .replace(/\([^)]*\)/g, ' ') // "(21,00)" = alícuota de IVA
-    .replace(/\b\d+([.,]\d+)?\s*(kg|gr?|un|u)?\s*[xX*]\s*\$?\s*\d[\d.]*(,\d+)?/gi, ' ') // "2 x 1.250,00", "1,250 kg x 9.800,00"
-    .replace(/\b\d{6,}\b/g, ' ') // códigos de barra / de producto
-    .replace(/(\s+[A-Za-z*%]{1,3})+\s*$/, '') // letras sueltas al final ("2.500,00 A")
-    .replace(/\s+/g, ' ')
-    .trim();
-  if (/-\s*\$?\s*\d[\d.,]*$/.test(s)) return null; // montos en negativo: descuentos
-  return s;
+// Un precio de ticket siempre tiene centavos: "1.250,00", "1250,00", "-500,00".
+const MONEY = /(-\s*)?\$?\s*(\d{1,3}(?:\.\d{3})+|\d+),(\d{2})(?!\d)/g;
+
+/** Arregla confusiones típicas del lector de fotos en los precios. */
+function fixOcr(s) {
+  return s
+    .replace(/(\d)\s*\)\s*(\d{2})(?!\d)/g, '$1,$2') // "6000) 00" → "6000,00"
+    .replace(/(\d)\s+,\s*(\d{2})(?!\d)|(\d),\s+(\d{2})(?!\d)/g, (m, a, b, c, d) => `${a ?? c},${b ?? d}`) // "6000 ,00"
+    .replace(/[\dOo]+(?:\.[\dOo]{3})*,[\dOo]{2}(?![\dOo])/g, (m) => (/\d/.test(m) ? m.replace(/[Oo]/g, '0') : m)); // "1OOO,OO"
 }
 
-/** Fecha impresa en el ticket (dd/mm/aaaa), para usarla en todos los productos. */
-function ticketDate(text, today) {
-  const m = text.match(/\b(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{4}|\d{2})\b/);
-  if (!m) return null;
-  let y = Number(m[3]);
-  if (y < 100) y += 2000;
-  const c = new Date(y, Number(m[2]) - 1, Number(m[1]));
-  if (c.getMonth() !== Number(m[2]) - 1) return null;
-  const d = dateStr(c);
-  return d <= today && d >= addDays(today, -366) ? d : null;
+/** Saca la basura del principio (letras sueltas que mete el fondo de la foto) y los signos de las puntas. */
+function cleanDesc(s) {
+  const words = s.trim().split(/\s+/);
+  while (words.length > 1 && (words[0].length <= 2 || !/[A-Za-zÀ-ÿ0-9]/.test(words[0]))) words.shift();
+  return words.join(' ').replace(/^[^A-Za-zÀ-ÿ0-9]+|[^A-Za-zÀ-ÿ0-9%)]+$/g, '').trim();
+}
+
+/**
+ * Una línea de ticket: { skip } (no es un producto), { desc } (nombre sin precio: el precio vino en el
+ * renglón de abajo), { amount } (precio solo) o { desc, amount }.
+ */
+function ticketLine(raw) {
+  let s = fixOcr(raw.trim());
+  const n = normalizeText(s);
+  if (!/[a-z]{2}|\d/.test(n) || TICKET_SKIP.test(n)) return { skip: true };
+  s = s
+    .replace(/\([^)]*\)/g, ' ') // "(21,00)" = alícuota de IVA
+    .replace(/\b\d+([.,]\d+)?\s*(kg|gr?|un|u)?\s*\(?\d*\)?\s*[xX*]\s*\$?\s*\d[\d.]*(,\d+)?/gi, ' ') // "2 x 1.250,00"
+    .replace(/\b\d{6,}\b/g, ' '); // códigos de barra / de producto
+  const all = [...s.matchAll(MONEY)];
+  const m = all[all.length - 1];
+  if (!m) {
+    const desc = cleanDesc(s);
+    return /[A-Za-zÀ-ÿ]{3}/.test(desc) ? { desc } : { skip: true };
+  }
+  if (m[1]) return { skip: true }; // en negativo: descuento
+  const amount = parseAmount(`${m[2]},${m[3]}`);
+  if (!(amount > 0)) return { skip: true };
+  const desc = cleanDesc(s.slice(0, m.index));
+  return /[A-Za-zÀ-ÿ]{2}/.test(desc) ? { desc, amount } : { amount };
+}
+
+/** El TOTAL impreso (el último precio del renglón que dice TOTAL, no SUBTOTAL). */
+function ticketTotal(raw) {
+  const s = fixOcr(raw);
+  const n = normalizeText(s);
+  if (!/(^|\s)total\b/.test(n) || /sub ?total/.test(n)) return null;
+  const all = [...s.matchAll(MONEY)];
+  const m = all[all.length - 1];
+  return m && !m[1] ? parseAmount(`${m[2]},${m[3]}`) : null;
+}
+
+/** Fecha del ticket: la del renglón que dice "Fecha"; si no hay, la más reciente (no la de inicio de actividades). */
+function ticketDate(lines, today) {
+  let best = null;
+  for (const line of lines) {
+    for (const m of line.matchAll(/\b(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{4}|\d{2})\b/g)) {
+      let y = Number(m[3]);
+      if (y < 100) y += 2000;
+      const c = new Date(y, Number(m[2]) - 1, Number(m[1]));
+      if (c.getMonth() !== Number(m[2]) - 1) continue;
+      const d = dateStr(c);
+      if (d > today || d < addDays(today, -366)) continue;
+      if (/fecha/i.test(line)) return d;
+      if (!best || d > best) best = d;
+    }
+  }
+  return best;
 }
 
 /**
  * Todas las líneas: { items: [...], errors: ['línea que no se entendió'], ticket, total }.
  * Si el texto parece un ticket, se saltean totales, impuestos, pagos y descuentos, se limpian los
- * renglones de productos y todos toman la fecha impresa en el ticket.
+ * renglones de productos (tolerando la basura que mete el lector de fotos) y todos toman la fecha del ticket.
  */
 export function parseBatch(text, today = todayStr()) {
-  const items = [];
-  const errors = [];
+  const lines = String(text).split(/\r?\n/).filter((l) => l.trim());
   const ticket = looksLikeTicket(String(text));
-  const tDate = ticket ? ticketDate(String(text), today) : null;
-  let total = null; // el TOTAL impreso en el ticket (ya con descuentos)
-  for (const raw of String(text).split(/\r?\n/)) {
-    if (!raw.trim()) continue;
-    if (ticket && total === null && /^\s*total\b/i.test(raw)) {
-      const t = parseLine(raw, today);
-      if (!t.error) total = t.amount;
+  if (!ticket) {
+    const items = [];
+    const errors = [];
+    for (const raw of lines) {
+      const r = parseLine(raw, today);
+      if (r.error) errors.push(raw.trim());
+      else items.push(r);
     }
-    const line = ticket ? ticketLine(raw) : raw;
-    if (line === null) continue;
-    const r = parseLine(line, today);
-    if (r.error) {
-      if (!ticket) errors.push(raw.trim());
-      continue;
-    }
-    if (tDate) r.date = tDate;
-    items.push(r);
+    return { items, errors, ticket, total: null };
   }
-  return { items, errors, ticket, total };
+
+  const date = ticketDate(lines, today) || today;
+  const items = [];
+  let total = null;
+  let pending = null; // nombre de producto esperando su precio en el renglón de abajo
+  for (const raw of lines) {
+    if (total === null) total = ticketTotal(raw);
+    const r = ticketLine(raw);
+    if (r.skip) {
+      pending = null;
+    } else if (r.desc && r.amount) {
+      items.push({ desc: r.desc, amount: r.amount, type: 'gasto', date, time: null });
+      pending = null;
+    } else if (r.desc) {
+      pending = r.desc;
+    } else if (pending) {
+      items.push({ desc: pending, amount: r.amount, type: 'gasto', date, time: null });
+      pending = null;
+    }
+  }
+  return { items, errors: [], ticket, total };
 }

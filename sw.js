@@ -1,6 +1,6 @@
 // Service worker: guarda los archivos de la app para que abra sin conexión.
 // Al cambiar cualquier archivo de la app, subir la versión para que se actualice.
-const CACHE = 'appfinanzas-v22';
+const CACHE = 'appfinanzas-v24';
 // El lector de fotos (js/vendor/ocr, ~6 MB) va en una caché aparte que no se borra con cada versión:
 // se baja una sola vez, la primera vez que se usa. Si alguna vez se cambian esos archivos, subir este número.
 const OCR_CACHE = 'appfinanzas-ocr-v1';
