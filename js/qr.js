@@ -13,25 +13,33 @@ export function loadJsQR() {
     loading = new Promise((resolve, reject) => {
       const s = document.createElement('script');
       s.src = 'js/vendor/jsQR.js';
-      s.onload = () => (window.jsQR ? resolve(window.jsQR) : reject(new Error('jsQR')));
-      s.onerror = () => {
+      // Si falla, se olvida el intento para que el próximo escaneo vuelva a probar.
+      const fail = () => {
         loading = null;
+        s.remove();
         reject(new Error('jsQR'));
       };
+      s.onload = () => (window.jsQR ? resolve(window.jsQR) : fail());
+      s.onerror = fail;
       document.head.appendChild(s);
     });
   }
   return loading;
 }
 
-/** Busca un QR en una imagen (video, canvas, img o ImageBitmap). Devuelve el texto o null. */
-export function decodeImage(jsQR, source, w, h, canvas, { thorough = false } = {}) {
+/**
+ * Busca un QR en una imagen (video, canvas, img o ImageBitmap). Devuelve el texto o null.
+ * crop = cuánto se amplía el centro (2 = solo la mitad del medio, con el doble de detalle).
+ */
+export function decodeImage(jsQR, source, w, h, canvas, { thorough = false, crop = 1 } = {}) {
+  const sw = w / crop;
+  const sh = h / crop;
   const max = thorough ? 1600 : 720;
-  const k = Math.min(1, max / Math.max(w, h));
-  canvas.width = Math.round(w * k);
-  canvas.height = Math.round(h * k);
+  const k = Math.min(1, max / Math.max(sw, sh));
+  canvas.width = Math.round(sw * k);
+  canvas.height = Math.round(sh * k);
   const ctx = canvas.getContext('2d', { willReadFrequently: true });
-  ctx.drawImage(source, 0, 0, canvas.width, canvas.height);
+  ctx.drawImage(source, (w - sw) / 2, (h - sh) / 2, sw, sh, 0, 0, canvas.width, canvas.height);
   const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
   const res = jsQR(img.data, img.width, img.height, { inversionAttempts: thorough ? 'attemptBoth' : 'dontInvert' });
   return res && res.data ? res.data : null;

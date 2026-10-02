@@ -2234,11 +2234,47 @@ label.sheet-btn {
   background: #000;
 }
 
+.scan-view {
+  touch-action: none;
+}
+
 .scan-view video {
   width: 100%;
   height: 100%;
   object-fit: cover;
   display: block;
+  transition: transform 0.1s linear;
+}
+
+.scan-zoom {
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.55);
+}
+
+.scan-zoom[hidden],
+.sheet-btn[hidden] {
+  display: none;
+}
+
+.scan-zoom button {
+  min-width: 38px;
+  height: 30px;
+  border-radius: 999px;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.scan-zoom button.on {
+  background: rgba(255, 255, 255, 0.22);
+  color: var(--accent);
 }
 
 .scan-frame {

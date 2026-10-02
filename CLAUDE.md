@@ -41,7 +41,9 @@ Datos en `localStorage` (clave `appfinanzas.v1`). Montos como enteros. No hay se
 - `js/rules.js` — `suggestCategory()` (reglas aprendidas primero, después palabras clave de `data.js`; gana la más
   larga) y `parseLine()/parseBatch()` para la carga en lote.
 - `js/qr.js` — QR fiscal de ARCA (`?p=` base64 JSON: fecha, CUIT, importe, moneda/ctz; **no trae productos**, se
-  anota un solo gasto por el total). `scanQR()` en app.js: cámara en vivo en la hoja + "Sacar foto" de respaldo.
+  anota un solo gasto por el total). `scanQR()` en app.js: cámara en vivo que escanea sola (alterna
+  el cuadro entero y el centro ampliado 2x/3x), zoom con dos dedos o 1x/2x/3x (zoom real de la cámara si
+  `getCapabilities().zoom` existe, si no digital), y "Sacar foto" solo si la cámara no abre.
   Usa `js/vendor/jsQR.js` (jsQR 1.4.0, Apache 2.0, se carga recién al escanear). Cada CUIT recuerda descripción y
   categoría en `state.merchants` (`rememberMerchant()` al guardar).
 - `js/data.js` — categorías iniciales (solo de gasto), colores, íconos elegibles, palabras clave (`BASE_KEYWORDS`).

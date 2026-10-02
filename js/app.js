@@ -488,14 +488,18 @@ function pickDate(value) {
 // ---------- Escáner de QR ----------
 
 /**
- * Hoja con la cámara para leer un QR. Si la cámara no abre (o no enfoca bien), "Sacar foto" usa la
- * cámara del sistema y busca el QR en la foto. Devuelve el texto del QR o null si se canceló.
+ * Hoja con la cámara para leer un QR: escanea sola mientras se apunta. Se puede hacer zoom con dos dedos
+ * o con 1x/2x/3x (zoom real de la cámara si el teléfono lo deja; si no, se amplía el centro de la imagen).
+ * "Sacar foto" aparece solo si la cámara no abre. Devuelve el texto del QR o null si se canceló.
  */
 function scanQR() {
   return new Promise((resolve) => {
     let settled = false;
     let stream = null;
     let timer = null;
+    let zoom = 1;
+    let native = null; // { min, max } si la cámara tiene zoom propio
+    let frame = 0;
     const canvas = document.createElement('canvas');
     const stop = () => {
       clearTimeout(timer);
@@ -516,22 +520,58 @@ function scanQR() {
       <div class="scan-view">
         <video playsinline muted autoplay></video>
         <span class="scan-frame"></span>
+        <div class="scan-zoom" hidden>${[1, 2, 3].map((z) => `<button data-zoom="${z}">${z}x</button>`).join('')}</div>
         <p class="scan-msg">Abriendo la cámara…</p>
       </div>
-      <p class="muted-sm">Apuntá al QR de ARCA que está al pie del ticket. Se anota el total con la fecha del ticket.</p>
-      <label class="sheet-btn">${icon('camera')} Sacar foto
+      <p class="muted-sm">Apuntá al QR de ARCA que está al pie del ticket: se lee solo. Si está lejos, hacé zoom con dos dedos.</p>
+      <label class="sheet-btn" hidden>${icon('camera')} Sacar foto
         <input type="file" accept="image/*" capture="environment" hidden></label>
       <button class="sheet-btn cancel" data-cancel>Cancelar</button>
     </div>`;
+    const view = sheet.querySelector('.scan-view');
     const video = sheet.querySelector('video');
     const msg = sheet.querySelector('.scan-msg');
+    const zoomBar = sheet.querySelector('.scan-zoom');
+    const photoBtn = sheet.querySelector('label.sheet-btn');
     const setMsg = (t) => {
       msg.textContent = t;
       msg.hidden = !t;
     };
 
+    const maxZoom = () => (native ? Math.min(native.max, 6) : 4);
+    let applying = false;
+    const setZoom = (z) => {
+      zoom = Math.min(maxZoom(), Math.max(1, z));
+      zoomBar.querySelectorAll('button').forEach((b) => b.classList.toggle('on', Math.abs(Number(b.dataset.zoom) - zoom) < 0.5));
+      const track = stream?.getVideoTracks()[0];
+      if (native && track) {
+        if (applying) return;
+        applying = true;
+        requestAnimationFrame(() => {
+          track.applyConstraints({ advanced: [{ zoom: Math.max(native.min, zoom) }] }).catch(() => {}).finally(() => (applying = false));
+        });
+      } else video.style.transform = zoom > 1 ? `scale(${zoom})` : '';
+    };
+
+    // Zoom con dos dedos sobre la imagen.
+    let pinch = null;
+    const dist = (t) => Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
+    view.addEventListener('touchstart', (e) => {
+      if (e.touches.length === 2) pinch = { d: dist(e.touches), z: zoom };
+    }, { passive: true });
+    view.addEventListener('touchmove', (e) => {
+      if (!pinch || e.touches.length !== 2) return;
+      e.preventDefault();
+      setZoom(pinch.z * (dist(e.touches) / pinch.d));
+    }, { passive: false });
+    view.addEventListener('touchend', (e) => {
+      if (e.touches.length < 2) pinch = null;
+    });
+
     sheet.onclick = (e) => {
-      if (e.target === sheet || e.target.closest('[data-cancel]')) done(null);
+      if (e.target === sheet || e.target.closest('[data-cancel]')) return done(null);
+      const zb = e.target.closest('[data-zoom]');
+      if (zb) setZoom(Number(zb.dataset.zoom));
     };
     sheet.onchange = async (e) => {
       const file = e.target.files?.[0];
@@ -541,7 +581,9 @@ function scanQR() {
       try {
         const jsQR = await loadJsQR();
         const bmp = await createImageBitmap(file);
-        const text = decodeImage(jsQR, bmp, bmp.width, bmp.height, canvas, { thorough: true });
+        const text =
+          decodeImage(jsQR, bmp, bmp.width, bmp.height, canvas, { thorough: true }) ||
+          decodeImage(jsQR, bmp, bmp.width, bmp.height, canvas, { thorough: true, crop: 2 });
         bmp.close?.();
         // Los avisos van dentro de la hoja: un toast quedaría tapado por el diálogo abierto.
         setMsg(text ? '' : 'No encontré un QR en la foto. Probá más de cerca y con luz.');
@@ -554,31 +596,44 @@ function scanQR() {
     sheet.showModal();
     sheet.onclose = () => !sheet.open && done(null);
 
+    // Escaneo continuo. Se alterna entre lo que se ve y el centro ampliado al doble y al triple: así un QR
+    // chico o lejano se lee aunque no se haga zoom.
     const tick = (jsQR) => {
       if (settled || !stream) return;
       if (video.readyState >= 2 && video.videoWidth) {
-        const text = decodeImage(jsQR, video, video.videoWidth, video.videoHeight, canvas);
+        const base = native ? 1 : zoom;
+        const crop = Math.min(base * ((frame++ % 3) + 1), 6);
+        const text = decodeImage(jsQR, video, video.videoWidth, video.videoHeight, canvas, { crop });
         if (text) {
           if (navigator.vibrate) navigator.vibrate(30);
           return done(text);
         }
       }
-      timer = setTimeout(() => tick(jsQR), 120);
+      timer = setTimeout(() => tick(jsQR), 100);
     };
     (async () => {
       try {
         const [jsQR, s] = await Promise.all([
           loadJsQR(),
-          navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment', width: { ideal: 1280 } }, audio: false }),
+          navigator.mediaDevices.getUserMedia({
+            video: { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 } },
+            audio: false,
+          }),
         ]);
         if (settled) return s.getTracks().forEach((t) => t.stop());
         stream = s;
+        const caps = s.getVideoTracks()[0]?.getCapabilities?.() || {};
+        if (caps.zoom && caps.zoom.max > 1) native = { min: caps.zoom.min || 1, max: caps.zoom.max };
         video.srcObject = s;
         await video.play().catch(() => {});
         setMsg('');
+        zoomBar.hidden = false;
+        setZoom(1);
         tick(jsQR);
       } catch {
-        if (!settled) setMsg('No se pudo abrir la cámara. Usá “Sacar foto”.');
+        if (settled) return;
+        setMsg('No se pudo abrir la cámara. Usá “Sacar foto”.');
+        photoBtn.hidden = false;
       }
     })();
   });
