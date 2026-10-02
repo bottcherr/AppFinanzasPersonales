@@ -4,6 +4,7 @@ import { state } from './store.js';
 import { icon } from './icons.js';
 import { COLORS, UNCLASSIFIED } from './data.js';
 import { suggestCategory, parseBatch } from './rules.js';
+import { loadJsQR, decodeImage, parseFiscalQR, fmtCuit } from './qr.js';
 import {
   esc, normalizeText, parseAmount, fmtNumber, todayStr, addDays, parseDate, monthOf, addMonths,
   daysInMonth, fmtMonth, fmtDateLong, fmtDateShort, fmtDay, occurrenceOnOrAfter, fmtEvery, WEEKDAYS, MONTHS,
@@ -342,6 +343,7 @@ function closeSheet() {
   sheet.onclose = null;
   sheet.oninput = null;
   sheet.onsubmit = null;
+  sheet.onchange = null;
   if (sheet.open) sheet.close();
 }
 
@@ -480,6 +482,105 @@ function pickDate(value) {
     if (sheet.open) sheet.close();
     sheet.showModal();
     sheet.onclose = () => !sheet.open && done(null);
+  });
+}
+
+// ---------- Escáner de QR ----------
+
+/**
+ * Hoja con la cámara para leer un QR. Si la cámara no abre (o no enfoca bien), "Sacar foto" usa la
+ * cámara del sistema y busca el QR en la foto. Devuelve el texto del QR o null si se canceló.
+ */
+function scanQR() {
+  return new Promise((resolve) => {
+    let settled = false;
+    let stream = null;
+    let timer = null;
+    const canvas = document.createElement('canvas');
+    const stop = () => {
+      clearTimeout(timer);
+      stream?.getTracks().forEach((t) => t.stop());
+      stream = null;
+    };
+    const done = (v) => {
+      if (settled) return;
+      settled = true;
+      stop();
+      closeSheet();
+      resolve(v);
+    };
+
+    sheet.className = 'sheet';
+    sheet.innerHTML = `<div class="sheet-body scan">
+      <p class="sheet-title">Escanear QR del ticket</p>
+      <div class="scan-view">
+        <video playsinline muted autoplay></video>
+        <span class="scan-frame"></span>
+        <p class="scan-msg">Abriendo la cámara…</p>
+      </div>
+      <p class="muted-sm">Apuntá al QR de ARCA que está al pie del ticket. Se anota el total con la fecha del ticket.</p>
+      <label class="sheet-btn">${icon('camera')} Sacar foto
+        <input type="file" accept="image/*" capture="environment" hidden></label>
+      <button class="sheet-btn cancel" data-cancel>Cancelar</button>
+    </div>`;
+    const video = sheet.querySelector('video');
+    const msg = sheet.querySelector('.scan-msg');
+    const setMsg = (t) => {
+      msg.textContent = t;
+      msg.hidden = !t;
+    };
+
+    sheet.onclick = (e) => {
+      if (e.target === sheet || e.target.closest('[data-cancel]')) done(null);
+    };
+    sheet.onchange = async (e) => {
+      const file = e.target.files?.[0];
+      e.target.value = '';
+      if (!file) return;
+      setMsg('Buscando el QR…');
+      try {
+        const jsQR = await loadJsQR();
+        const bmp = await createImageBitmap(file);
+        const text = decodeImage(jsQR, bmp, bmp.width, bmp.height, canvas, { thorough: true });
+        bmp.close?.();
+        // Los avisos van dentro de la hoja: un toast quedaría tapado por el diálogo abierto.
+        setMsg(text ? '' : 'No encontré un QR en la foto. Probá más de cerca y con luz.');
+        if (text) done(text);
+      } catch {
+        setMsg('No se pudo leer la foto.');
+      }
+    };
+    if (sheet.open) sheet.close();
+    sheet.showModal();
+    sheet.onclose = () => !sheet.open && done(null);
+
+    const tick = (jsQR) => {
+      if (settled || !stream) return;
+      if (video.readyState >= 2 && video.videoWidth) {
+        const text = decodeImage(jsQR, video, video.videoWidth, video.videoHeight, canvas);
+        if (text) {
+          if (navigator.vibrate) navigator.vibrate(30);
+          return done(text);
+        }
+      }
+      timer = setTimeout(() => tick(jsQR), 120);
+    };
+    (async () => {
+      try {
+        const [jsQR, s] = await Promise.all([
+          loadJsQR(),
+          navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment', width: { ideal: 1280 } }, audio: false }),
+        ]);
+        if (settled) return s.getTracks().forEach((t) => t.stop());
+        stream = s;
+        video.srcObject = s;
+        await video.play().catch(() => {});
+        setMsg('');
+        tick(jsQR);
+      } catch {
+        if (!settled) setMsg('No se pudo abrir la cámara. Usá “Sacar foto”.');
+      }
+    })();
   });
 }
 
@@ -765,19 +866,24 @@ function draftForm() {
       <header class="topbar">
         <button class="icon-btn" data-action="form-close" aria-label="Cerrar">${icon(isEdit ? 'chev-left' : 'x')}</button>
         <h1 class="topbar-title center">${isEdit ? 'Editar gasto' : 'Nuevo gasto'}</h1>
-        <div class="topbar-right">${
-          isEdit
-            ? `<button class="icon-btn danger" data-action="delete-mov" aria-label="Borrar">${icon('trash')}</button>`
-            : `<button class="pill-btn lote-btn" data-action="to-batch">${icon('layers')} En lote</button>`
-        }</div>
+        <div class="topbar-right">${isEdit ? `<button class="icon-btn danger" data-action="delete-mov" aria-label="Borrar">${icon('trash')}</button>` : ''}</div>
       </header>
       <div class="content">
+        ${
+          isEdit
+            ? ''
+            : `<div class="entry-modes">
+                <button class="pill-btn" data-action="scan-qr">${icon('qr')} Escanear ticket</button>
+                <button class="pill-btn" data-action="to-batch">${icon('layers')} Varios en lote</button>
+              </div>`
+        }
         <label class="hero-amount ${d.type}"><span>${esc(cur())}</span>
           <input id="f-amount" inputmode="numeric" autocomplete="off" value="${d.amount ? fmtNumber(d.amount) : ''}" placeholder="0" aria-label="Monto"></label>
         <button class="date-chip" data-action="f-date">${icon('calendar')}<span id="f-date-label">${dateLabel()}</span>${icon('chev-down')}</button>
         <div class="cat-grid" id="f-cats">${catGridHTML()}</div>
         <input id="f-desc" class="desc-input" autocomplete="off" autocapitalize="sentences" maxlength="80"
           value="${esc(d.desc)}" placeholder="Descripción (opcional)" aria-label="Descripción">
+        ${d.cuit ? `<p class="note">${icon('qr')} Del QR del ticket · CUIT ${fmtCuit(d.cuit)}</p>` : ''}
         ${
           fijo
             ? `<p class="note">${icon('repeat')} Viene del fijo “${esc(fijo.name)}”</p>`
@@ -801,6 +907,19 @@ function draftForm() {
       'to-batch': () => {
         draft = null;
         navigate('/lote', { replace: true });
+      },
+      'scan-qr': async () => {
+        const text = await scanQR();
+        if (!text) return;
+        const t = parseFiscalQR(text);
+        if (!t) return toast('Ese QR no es el de un ticket o factura (ARCA)');
+        const known = store.getMerchant(t.cuit);
+        draft = newDraft({
+          amount: t.amount, date: t.date || todayStr(), source: 'qr', cuit: t.cuit,
+          desc: known?.desc || '', categoryId: known?.categoryId || null, catManual: !!known?.categoryId,
+        });
+        draftForm();
+        toast(known?.categoryId ? 'Ticket leído' : 'Ticket leído: elegí la categoría');
       },
       'f-date': async () => {
         const v = await pickDate(d.date);
@@ -880,6 +999,8 @@ function saveDraft() {
   const desc = d.desc.trim();
   const changed = d.editId ? d.categoryId !== d.origCategoryId : d.catManual;
   if (changed && desc && d.categoryId && d.categoryId !== suggestCategory(desc, d.type, state)) store.learnRule(desc, d.categoryId);
+
+  if (d.cuit) store.rememberMerchant(d.cuit, desc, d.categoryId);
 
   const data = { type: d.type, amount: d.amount, date: d.date, desc, categoryId: d.categoryId };
   let m;

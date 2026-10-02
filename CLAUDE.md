@@ -26,8 +26,8 @@ Datos en `localStorage` (clave `appfinanzas.v1`). Montos como enteros. No hay se
 - `index.html` — punto de entrada; `<dialog id="sheet">` para hojas y confirmaciones.
 - `css/styles.css` — todo el estilo, tokens en `:root` (oscuro fijo, acento verde `--accent`, títulos y monto grande con Outfit, guardada en `fonts/`). Barra de abajo, pastilla del mes y botón Anotar con estilo "Liquid Glass" (tokens `--glass-*`).
 - `js/app.js` — pantallas y router por hash: `#/` (inicio), `#/nuevo` y `#/mov/:id` (anotar/editar en **una sola
-  pantalla**: monto, fecha, grilla de categorías, descripción opcional que elige la categoría sola, "Se repite"; al anotar, arriba a la derecha está "En lote", que
-  lleva a `#/lote`),
+  pantalla**: monto, fecha, grilla de categorías, descripción opcional que elige la categoría sola, "Se repite"; al anotar, arriba del monto están "Escanear ticket"
+  (QR, ver `qr.js`) y "Varios en lote" (lleva a `#/lote`)),
   `#/movimientos` (pestaña "Historial": gastos del mes con buscador y filtro por categoría; el inicio se titula "Gastos" y el mes se elige en una pastilla a la derecha del título), `#/analisis` (total, gráfico de barra 100 %
   por categoría con leyenda, proyección y límites), `#/ajustes` (Gastos por mes, Gastos fijos, Carga en lote y Backup), `#/meses` (barras de los últimos 12 meses desde el primero con gastos; el mes en curso dice "En curso" en vez de comparar),
   `#/lote`, `#/fijos`, `#/fijo/:id|nuevo`, `#/pendientes` y `#/sin-clasificar` (a estas dos se llega por los avisos
@@ -40,6 +40,10 @@ Datos en `localStorage` (clave `appfinanzas.v1`). Montos como enteros. No hay se
   Fijos: `processRecurring()` arma los pendientes vencidos (uno por ciclo, con su fecha) cada vez que se navega.
 - `js/rules.js` — `suggestCategory()` (reglas aprendidas primero, después palabras clave de `data.js`; gana la más
   larga) y `parseLine()/parseBatch()` para la carga en lote.
+- `js/qr.js` — QR fiscal de ARCA (`?p=` base64 JSON: fecha, CUIT, importe, moneda/ctz; **no trae productos**, se
+  anota un solo gasto por el total). `scanQR()` en app.js: cámara en vivo en la hoja + "Sacar foto" de respaldo.
+  Usa `js/vendor/jsQR.js` (jsQR 1.4.0, Apache 2.0, se carga recién al escanear). Cada CUIT recuerda descripción y
+  categoría en `state.merchants` (`rememberMerchant()` al guardar).
 - `js/data.js` — categorías iniciales (solo de gasto), colores, íconos elegibles, palabras clave (`BASE_KEYWORDS`).
 - `js/util.js` — fechas (`'YYYY-MM-DD'` local), montos (`parseAmount`, `fmtNumber` es-AR), `esc()`, `occurrenceOnOrAfter()`.
 - `js/icons.js` — íconos SVG de línea.

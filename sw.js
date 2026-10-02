@@ -1,6 +1,6 @@
 // Service worker: guarda los archivos de la app para que abra sin conexión.
 // Al cambiar cualquier archivo de la app, subir la versión para que se actualice.
-const CACHE = 'appfinanzas-v14';
+const CACHE = 'appfinanzas-v16';
 
 const FILES = [
   './',
@@ -12,6 +12,8 @@ const FILES = [
   './js/rules.js',
   './js/util.js',
   './js/icons.js',
+  './js/qr.js',
+  './js/vendor/jsQR.js',
   './manifest.webmanifest',
   './icons/icon.svg',
   './icons/icon-192.png',

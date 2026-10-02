@@ -11,6 +11,7 @@ function emptyState() {
     movements: [],
     categories: DEFAULT_CATEGORIES.map((c) => ({ ...c })),
     rules: [],
+    merchants: [], // comercios de los QR: { cuit, desc, categoryId }
     recurring: [],
     pending: [],
     budgets: [],
@@ -98,7 +99,7 @@ function normalize(data) {
           desc: text(m.desc, 80),
           categoryId: catRef(m.categoryId),
           tags: arr(m.tags).map((t) => text(t, 24)),
-          source: ['app', 'rapido', 'lote', 'fijo'].includes(m.source) ? m.source : 'app',
+          source: ['app', 'rapido', 'lote', 'fijo', 'qr'].includes(m.source) ? m.source : 'app',
           createdAt: typeof m.createdAt === 'string' ? text(m.createdAt, 30) : '',
         };
         if (recIds.has(m.recurringId)) out.recurringId = m.recurringId;
@@ -108,6 +109,10 @@ function normalize(data) {
     rules: arr(data.rules)
       .filter((r) => r && typeof r.pattern === 'string' && r.pattern && catIds.has(r.categoryId))
       .map((r) => ({ id: freshId(r.id), pattern: text(r.pattern, 80), categoryId: r.categoryId, source: 'aprendida' })),
+    merchants: arr(data.merchants)
+      .filter((c) => c && typeof c.cuit === 'string' && /^\d{11}$/.test(c.cuit))
+      .map((c) => ({ cuit: c.cuit, desc: text(c.desc, 80), categoryId: catRef(c.categoryId) }))
+      .filter((c, i, all) => all.findIndex((o) => o.cuit === c.cuit) === i),
     recurring,
     pending: arr(data.pending)
       .filter((p) => p && recIds.has(p.recurringId) && isDate(p.dueDate))
@@ -265,6 +270,20 @@ export function learnRule(desc, categoryId) {
   if (!pattern || !categoryId) return;
   state.rules = state.rules.filter((r) => r.pattern !== pattern);
   state.rules.push({ id: uid(), pattern, categoryId, source: 'aprendida' });
+  save();
+}
+
+// ---------- Comercios (QR de tickets) ----------
+
+export function getMerchant(cuit) {
+  return state.merchants.find((c) => c.cuit === cuit) || null;
+}
+
+/** Recuerda la descripción y la categoría que se usaron con ese CUIT, para el próximo ticket. */
+export function rememberMerchant(cuit, desc, categoryId) {
+  if (!/^\d{11}$/.test(cuit)) return;
+  state.merchants = state.merchants.filter((c) => c.cuit !== cuit);
+  state.merchants.push({ cuit, desc: String(desc || '').slice(0, 80), categoryId: getCategory(categoryId) ? categoryId : null });
   save();
 }
 
