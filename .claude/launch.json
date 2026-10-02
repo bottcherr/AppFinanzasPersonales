@@ -4,8 +4,20 @@
     {
       "name": "appfinanzas",
       "runtimeExecutable": "python",
-      "runtimeArgs": ["tools/serve.py"],
+      "runtimeArgs": [
+        "tools/serve.py"
+      ],
       "port": 5174
+    },
+    {
+      "name": "appfinanzas-test",
+      "runtimeExecutable": "python",
+      "runtimeArgs": [
+        "-m",
+        "http.server",
+        "5180"
+      ],
+      "port": 5180
     }
   ]
 }

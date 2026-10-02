@@ -1818,3 +1818,16 @@ if ('serviceWorker' in navigator && location.protocol !== 'file:') {
 }
 
 route();
+
+// Pantalla de carga (está en index.html y solo se ve en celular): queda ~1,3 s desde que abrió la app y se
+// desvanece. El setTimeout de respaldo la saca aunque no llegue el fin de la transición.
+const splash = document.getElementById('splash');
+if (splash && getComputedStyle(splash).display !== 'none') {
+  setTimeout(() => {
+    splash.classList.add('out');
+    splash.addEventListener('transitionend', () => splash.remove(), { once: true });
+    setTimeout(() => splash.remove(), 600);
+  }, Math.max(0, 1300 - performance.now()));
+} else {
+  splash?.remove();
+}

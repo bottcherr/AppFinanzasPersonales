@@ -51,6 +51,8 @@ Datos en `localStorage` (clave `appfinanzas.v1`). Montos como enteros. No hay se
 - Pantalla de carga del iPhone: `icons/splash/` (una por modelo, las genera `tools/make-icons.mjs` con la lista
   `SPLASH`) y un `<link rel="apple-touch-startup-image">` por cada una en `index.html`. iOS la toma al agregar la app
   a inicio: para ver un cambio hay que borrar la app de inicio y volver a agregarla.
+  Después de esa, `#splash` en `index.html` (estilo en el `<style>` del head, solo con `pointer: coarse`) muestra la
+  misma moneda en el mismo lugar + "Finanzas" abajo, y app.js la desvanece a los ~1,3 s de abrir.
 
 ## Reglas (importante)
 
