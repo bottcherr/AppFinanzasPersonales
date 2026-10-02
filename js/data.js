@@ -36,6 +36,10 @@ export const BASE_KEYWORDS = {
   super: [
     'super', 'supermercado', 'mercado', 'carrefour', 'coto', 'dia', 'jumbo', 'disco', 'vea', 'changomas',
     'walmart', 'almacen', 'verduleria', 'carniceria', 'dietetica', 'chino', 'fiambreria', 'mayorista',
+    // productos de almacén (para los renglones de un ticket del súper)
+    'leche', 'pan', 'pan lactal', 'queso', 'yogur', 'manteca', 'huevo', 'harina', 'arroz', 'fideos', 'aceite',
+    'azucar', 'yerba', 'galletitas', 'carne', 'pollo', 'fruta', 'verdura', 'papa', 'tomate', 'cebolla', 'jamon',
+    'fiambre', 'detergente', 'lavandina', 'jabon', 'shampoo', 'papel higienico', 'servilletas', 'agua mineral',
   ],
   transporte: [
     'taxi', 'uber', 'cabify', 'didi', 'colectivo', 'bondi', 'subte', 'tren', 'sube', 'nafta', 'combustible',

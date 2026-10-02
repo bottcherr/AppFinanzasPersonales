@@ -66,7 +66,7 @@ function normalize(data) {
   const catRef = (v) => (catIds.has(v) ? v : null);
 
   const recurring = arr(data.recurring)
-    .filter((f) => f && ['semanal', 'mensual', 'anual'].includes(f.every) && isDate(f.nextDate))
+    .filter((f) => f && ['diario', 'semanal', 'mensual', 'anual'].includes(f.every) && isDate(f.nextDate))
     .map((f) => {
       const semanal = f.every === 'semanal';
       return {
@@ -77,6 +77,7 @@ function normalize(data) {
         variable: !!f.variable,
         categoryId: catRef(f.categoryId),
         every: f.every,
+        workdays: f.every === 'diario' && f.workdays === true,
         day: int(f.day, semanal ? 0 : 1, semanal ? 6 : 31) ?? 1,
         month: int(f.month, 1, 12) ?? 1,
         nextDate: f.nextDate,
@@ -348,7 +349,7 @@ export function updateRecurring(id, patch) {
   const wasActive = f.active;
   Object.assign(f, patch);
   // Si cambió la periodicidad, o se reanuda después de una pausa, la próxima fecha arranca desde hoy.
-  if ('every' in patch || 'day' in patch || 'month' in patch || (!wasActive && f.active)) {
+  if ('every' in patch || 'day' in patch || 'month' in patch || 'workdays' in patch || (!wasActive && f.active)) {
     f.nextDate = occurrenceOnOrAfter(f, todayStr());
   }
   save();
@@ -365,6 +366,8 @@ export function processRecurring(today = todayStr()) {
   let changed = false;
   for (const f of state.recurring) {
     if (!f.active) continue;
+    // Un fijo diario no junta más de 2 semanas de pendientes si no se abrió la app por mucho tiempo.
+    if (f.every === 'diario' && f.nextDate < addDays(today, -13)) f.nextDate = occurrenceOnOrAfter(f, addDays(today, -13));
     let guard = 0;
     while (f.nextDate <= today && guard++ < 120) {
       state.pending.push({

@@ -86,15 +86,70 @@ export function parseLine(line, today = todayStr()) {
   return { desc, amount, type, date, time };
 }
 
-/** Todas las líneas: { items: [...], errors: ['línea que no se entendió'] }. */
+// ---------- Tickets (texto copiado de un ticket con "Escanear texto" del iPhone) ----------
+
+/** Parece un ticket si menciona CUIT o tiene una línea de TOTAL. */
+export const looksLikeTicket = (text) => /\bcuit\b|^\s*(sub\s*)?total\b/im.test(text);
+
+// Renglones de un ticket que no son productos (se comparan sin tildes y en minúscula).
+const TICKET_SKIP =
+  /\b(sub ?total|total|iva|cuit|vuelto|efectivo|tarjeta|debito|credito|cambio|recibido|su pago|pago|ingresos brutos|ii ?bb|consumidor final|cons\.? ?final|resp(onsable)?\.? ?inscripto|monotributo|cajero|caja|ticket|factura|comprobante|nro|p\.? ?v\.?|cant(idad)?|items?|redondeo|saldo|cae|importe|percepcion|retencion|descuento|dto|bonif(icacion)?|promo(cion)?|ahorro|fecha|hora)\b/;
+
+/** Limpia una línea de ticket. Devuelve el texto listo para parseLine, o null si hay que ignorarla. */
+function ticketLine(raw) {
+  let s = raw.trim();
+  const n = normalizeText(s);
+  if (!/[a-z]{2}/.test(n)) return null; // sin palabras: cantidades ("2 x 1.250"), fechas, códigos
+  if (TICKET_SKIP.test(n)) return null;
+  s = s
+    .replace(/\([^)]*\)/g, ' ') // "(21,00)" = alícuota de IVA
+    .replace(/\b\d+([.,]\d+)?\s*(kg|gr?|un|u)?\s*[xX*]\s*\$?\s*\d[\d.]*(,\d+)?/gi, ' ') // "2 x 1.250,00", "1,250 kg x 9.800,00"
+    .replace(/\b\d{6,}\b/g, ' ') // códigos de barra / de producto
+    .replace(/(\s+[A-Za-z*%]{1,3})+\s*$/, '') // letras sueltas al final ("2.500,00 A")
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (/-\s*\$?\s*\d[\d.,]*$/.test(s)) return null; // montos en negativo: descuentos
+  return s;
+}
+
+/** Fecha impresa en el ticket (dd/mm/aaaa), para usarla en todos los productos. */
+function ticketDate(text, today) {
+  const m = text.match(/\b(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{4}|\d{2})\b/);
+  if (!m) return null;
+  let y = Number(m[3]);
+  if (y < 100) y += 2000;
+  const c = new Date(y, Number(m[2]) - 1, Number(m[1]));
+  if (c.getMonth() !== Number(m[2]) - 1) return null;
+  const d = dateStr(c);
+  return d <= today && d >= addDays(today, -366) ? d : null;
+}
+
+/**
+ * Todas las líneas: { items: [...], errors: ['línea que no se entendió'], ticket, total }.
+ * Si el texto parece un ticket, se saltean totales, impuestos, pagos y descuentos, se limpian los
+ * renglones de productos y todos toman la fecha impresa en el ticket.
+ */
 export function parseBatch(text, today = todayStr()) {
   const items = [];
   const errors = [];
+  const ticket = looksLikeTicket(String(text));
+  const tDate = ticket ? ticketDate(String(text), today) : null;
+  let total = null; // el TOTAL impreso en el ticket (ya con descuentos)
   for (const raw of String(text).split(/\r?\n/)) {
     if (!raw.trim()) continue;
-    const r = parseLine(raw, today);
-    if (r.error) errors.push(raw.trim());
-    else items.push(r);
+    if (ticket && total === null && /^\s*total\b/i.test(raw)) {
+      const t = parseLine(raw, today);
+      if (!t.error) total = t.amount;
+    }
+    const line = ticket ? ticketLine(raw) : raw;
+    if (line === null) continue;
+    const r = parseLine(line, today);
+    if (r.error) {
+      if (!ticket) errors.push(raw.trim());
+      continue;
+    }
+    if (tDate) r.date = tDate;
+    items.push(r);
   }
-  return { items, errors };
+  return { items, errors, ticket, total };
 }

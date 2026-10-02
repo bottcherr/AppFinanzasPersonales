@@ -119,11 +119,17 @@ export function fmtDay(s) {
 
 /**
  * Primera fecha >= s en la que toca un fijo.
+ * diario: todos los días (workdays: solo de lunes a viernes).
  * semanal: day = día de la semana (0 = domingo). mensual: day = día del mes (si el mes es más corto,
  * el último día). anual: month (1-12) y day.
  */
 export function occurrenceOnOrAfter(f, s) {
   const d = parseDate(s);
+  if (f.every === 'diario') {
+    // De lunes a viernes: si cae sábado o domingo, pasa al lunes.
+    if (f.workdays) while (d.getDay() === 0 || d.getDay() === 6) d.setDate(d.getDate() + 1);
+    return dateStr(d);
+  }
   if (f.every === 'semanal') {
     d.setDate(d.getDate() + ((((Number(f.day) || 0) - d.getDay()) % 7 + 7) % 7));
     return dateStr(d);
@@ -148,6 +154,7 @@ export function occurrenceOnOrAfter(f, s) {
 }
 
 export function fmtEvery(f) {
+  if (f.every === 'diario') return f.workdays ? 'De lunes a viernes' : 'Todos los días';
   if (f.every === 'semanal') return `Cada ${WEEKDAYS[f.day]}`;
   if (f.every === 'anual') return `Cada ${f.day} de ${MONTHS[f.month - 1]}`;
   return `Todos los ${f.day}`;

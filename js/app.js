@@ -906,7 +906,10 @@ function openEdit(id) {
 function recFromDraft() {
   const dt = parseDate(draft.date);
   const every = draft.recurring.every;
-  return { every, day: every === 'semanal' ? dt.getDay() : dt.getDate(), month: dt.getMonth() + 1 };
+  return {
+    every, day: every === 'semanal' ? dt.getDay() : dt.getDate(), month: dt.getMonth() + 1,
+    workdays: every === 'diario' && !!draft.recurring.workdays,
+  };
 }
 
 function recurringPanel() {
@@ -915,7 +918,8 @@ function recurringPanel() {
   const seg = (e, label) =>
     `<button type="button" class="seg-btn${r.every === e ? ' on' : ''}" data-action="rec-every" data-every="${e}">${label}</button>`;
   return `<div class="rec-panel">
-    <div class="seg">${seg('semanal', 'Semanal')}${seg('mensual', 'Mensual')}${seg('anual', 'Anual')}</div>
+    <div class="seg">${seg('diario', 'Diario')}${seg('semanal', 'Semanal')}${seg('mensual', 'Mensual')}${seg('anual', 'Anual')}</div>
+    ${r.every === 'diario' ? `<label class="check-row"><input type="checkbox" id="f-workdays" ${r.workdays ? 'checked' : ''}> Solo de lunes a viernes</label>` : ''}
     <p class="muted-sm">${esc(fmtEvery(recFromDraft()))}. Cada vez se te pide confirmarlo.</p>
     <label class="check-row"><input type="checkbox" id="f-variable" ${r.variable ? 'checked' : ''}> El monto varía (se pide al confirmar)</label>
   </div>`;
@@ -1071,6 +1075,10 @@ function draftForm() {
       change: (e) => {
         const id = e.target.id;
         if (id === 'f-variable') d.recurring.variable = e.target.checked;
+        else if (id === 'f-workdays') {
+          d.recurring.workdays = e.target.checked;
+          root.querySelector('#f-rec').innerHTML = recurringPanel();
+        }
       },
       keydown: (e) => {
         if (e.key === 'Enter' && (e.target.id === 'f-amount' || e.target.id === 'f-desc')) {
@@ -1416,6 +1424,7 @@ function batchInput() {
       ${topbar(`${icon('sparkles')} Carga en lote`, { back: '/' })}
       <main class="content">
         <p class="muted">Un gasto por línea: <b>descripción y monto</b>. La fecha al principio es opcional (<b>12/03</b>).</p>
+        <p class="info-line">${icon('camera')} <span>¿Una lista o un ticket en papel? Tocá el cuadro, elegí <b>Escanear texto</b> y apuntá con la cámara: el texto se escribe solo.</span></p>
         <textarea id="btext" class="batch-text" rows="9" autocapitalize="sentences"
           placeholder="Almuerzo 50.000&#10;Taxi 20.000&#10;Café 8.500&#10;12/09 Farmacia 12.300">${esc(batch.text)}</textarea>
         <div id="bproc"></div>
@@ -1426,7 +1435,7 @@ function batchInput() {
       process: () => {
         const text = root.querySelector('#btext').value;
         batch.text = text;
-        const { items, errors } = parseBatch(text);
+        const { items, errors, ticket, total } = parseBatch(text);
         if (!items.length) {
           toast(errors.length ? 'No encontré montos en esas líneas' : 'Escribí al menos un gasto');
           return;
@@ -1436,6 +1445,8 @@ function batchInput() {
           return { ...it, type: 'gasto', categoryId: s, suggested: s, catManual: false };
         });
         batch.errors = errors;
+        batch.ticket = ticket;
+        batch.total = total;
         processingAnimation(() => route(true));
       },
     },
@@ -1467,7 +1478,8 @@ function batchPreview() {
       ${topbar(`${icon('sparkles')} Carga en lote`, { back: '/' })}
       <main class="content">
         <div class="card pad batch-total" id="btotal">${batchTotalHTML()}</div>
-        <p class="info-line">${icon('info')} Confirmá las categorías antes de guardar.</p>
+        <p class="info-line">${icon('info')} ${batch.ticket ? 'Parece un ticket: salteé totales, impuestos, pagos y descuentos.' : 'Confirmá las categorías antes de guardar.'}</p>
+        ${batch.items.length > 1 ? `<button class="btn secondary" data-action="b-join">${icon('layers')} Juntar en un solo gasto</button>` : ''}
         ${
           batch.errors?.length
             ? `<div class="card pad warn-card"><b>No entendí ${batch.errors.length === 1 ? 'esta línea' : 'estas líneas'}</b>${batch.errors
@@ -1498,6 +1510,20 @@ function batchPreview() {
         it.categoryId = id;
         it.catManual = true;
         refreshItem(i);
+      },
+      // Todo en un gasto por el total (útil con tickets del súper): toma la categoría que más se repite.
+      // Si el ticket trae su TOTAL impreso, se usa ese (ya tiene los descuentos).
+      'b-join': () => {
+        const its = batch.items;
+        const count = {};
+        for (const it of its) if (it.categoryId) count[it.categoryId] = (count[it.categoryId] || 0) + 1;
+        const cat = Object.keys(count).sort((a, b) => count[b] - count[a])[0] || null;
+        batch.items = [{
+          desc: '', amount: batch.total || its.reduce((t, it) => t + (it.amount || 0), 0), date: its[0].date, time: null,
+          type: 'gasto', categoryId: cat, suggested: cat, catManual: false,
+        }];
+        route(true);
+        toast(`Se juntaron ${its.length} gastos en uno`);
       },
       'b-del': (el) => {
         batch.items.splice(Number(el.dataset.i), 1);
@@ -1648,7 +1674,9 @@ function renderRecurringForm(id) {
       .map((x) => `<option value="${x}"${x === Number(sel) ? ' selected' : ''}>${label(x)}</option>`)
       .join('');
   let dayField;
-  if (f.every === 'semanal') dayField = `<select id="fx-day">${[1, 2, 3, 4, 5, 6, 0].map((x) => `<option value="${x}"${x === Number(f.day) ? ' selected' : ''}>${WEEKDAYS[x]}</option>`).join('')}</select>`;
+  if (f.every === 'diario')
+    dayField = `<label class="check-row"><input type="checkbox" id="fx-workdays" ${f.workdays ? 'checked' : ''}> Solo de lunes a viernes</label>`;
+  else if (f.every === 'semanal') dayField = `<select id="fx-day">${[1, 2, 3, 4, 5, 6, 0].map((x) => `<option value="${x}"${x === Number(f.day) ? ' selected' : ''}>${WEEKDAYS[x]}</option>`).join('')}</select>`;
   else if (f.every === 'anual')
     dayField = `<div class="two"><select id="fx-day">${opts(31, 1, f.day)}</select><select id="fx-month">${opts(12, 1, f.month, (x) => MONTHS[x - 1])}</select></div>`;
   else dayField = `<select id="fx-day">${opts(31, 1, Math.min(f.day, 31), (x) => `Día ${x}`)}</select>`;
@@ -1664,8 +1692,8 @@ function renderRecurringForm(id) {
           <label class="check-row"><input type="checkbox" id="fx-variable" ${f.variable ? 'checked' : ''}> El monto varía (luz, agua…): se pide al confirmar</label></div>
         <button class="field-row" data-action="fx-cat"><span class="field-label">Categoría</span><span class="field-val">${catIcon(c, 'sm')}<b>${esc(c.name)}</b></span>${icon('chev-right')}</button>
         <div class="field"><span class="field-label">Se repite</span>
-          <div class="seg">${seg('every', 'semanal', 'Semanal')}${seg('every', 'mensual', 'Mensual')}${seg('every', 'anual', 'Anual')}</div></div>
-        <div class="field"><span class="field-label">${f.every === 'semanal' ? 'Día de la semana' : 'Día'}</span>${dayField}</div>
+          <div class="seg">${seg('every', 'diario', 'Diario')}${seg('every', 'semanal', 'Semanal')}${seg('every', 'mensual', 'Mensual')}${seg('every', 'anual', 'Anual')}</div></div>
+        <div class="field">${f.every === 'diario' ? '' : `<span class="field-label">${f.every === 'semanal' ? 'Día de la semana' : 'Día'}</span>`}${dayField}</div>
         <p class="muted-sm">${esc(fmtEvery(f))} · Próxima vez: ${esc(fmtDay(occurrenceOnOrAfter(f, existing?.active ? existing.nextDate : todayStr())))}</p>
         ${existing ? `<label class="switch-row"><span>Activo</span><input type="checkbox" id="fx-active" ${f.active ? 'checked' : ''}><i class="switch"></i></label>` : ''}
       </main>
@@ -1692,6 +1720,7 @@ function renderRecurringForm(id) {
         const data = {
           name: f.name.trim(), type: f.type, amount: f.variable ? 0 : f.amount, variable: f.variable,
           categoryId: f.categoryId ?? suggestCategory(f.name, f.type, state), every: f.every, day: Number(f.day), month: Number(f.month),
+          workdays: f.every === 'diario' && !!f.workdays,
         };
         if (existing) store.updateRecurring(existing.id, { ...data, active: f.active });
         else store.addRecurring(data);
@@ -1725,6 +1754,9 @@ function renderRecurringForm(id) {
         } else if (idt === 'fx-month') {
           f.month = Number(e.target.value);
           route(true);
+        } else if (idt === 'fx-workdays') {
+          f.workdays = e.target.checked;
+          route(true);
         } else if (idt === 'fx-active') f.active = e.target.checked;
       },
     },
@@ -1746,7 +1778,7 @@ function renderPending() {
       <div class="pend-top">${catIcon(c)}<span class="mov-main"><b>${esc(f.name)}</b>
         <small class="${late ? 'warn-text' : ''}">${late ? 'Vencía' : 'Vence'} ${esc(fmtDay(p.dueDate))} · ${esc(c.name)}</small></span></div>
       <div class="pend-amount ${f.type}"><span>${f.type === 'ingreso' ? '+' : '-'}${esc(cur())}</span>
-        <input inputmode="numeric" class="pend-in" data-id="${p.id}" value="${p.amount ? fmtNumber(p.amount) : ''}" placeholder="${f.variable ? 'Monto de este mes' : '0'}"></div>
+        <input inputmode="numeric" class="pend-in" data-id="${p.id}" value="${p.amount ? fmtNumber(p.amount) : ''}" placeholder="${f.variable ? (f.every === 'diario' ? 'Monto de ese día' : 'Monto de este mes') : '0'}"></div>
       <div class="pend-actions">
         <button class="btn primary sm" data-action="p-ok" data-id="${p.id}">${icon('check')} Confirmar</button>
         <button class="btn secondary sm" data-action="p-skip" data-id="${p.id}">Saltar</button>
@@ -1759,6 +1791,7 @@ function renderPending() {
       ${topbar('Para confirmar', { back: '/' })}
       <main class="content">
         <p class="muted">Los fijos nunca se anotan solos. Confirmá, cambiá el monto, saltá este ciclo o posponelo.</p>
+        ${due.length > 1 ? `<button class="btn secondary" data-action="p-all">${icon('check')} Confirmar todos (${due.length})</button>` : ''}
         ${due.length ? due.map(card).join('') : `<div class="empty">${icon('check')}<p>Todo al día.</p><small>No hay fijos vencidos.</small></div>`}
         ${snoozed.length ? `<p class="label">Pospuestos para mañana</p>${snoozed.map(card).join('')}` : ''}
         <button class="btn link" data-action="to" data-to="/fijos">Ver gastos fijos</button>
@@ -1775,6 +1808,21 @@ function renderPending() {
         const m = store.confirmPending(el.dataset.id, amount);
         checkSave();
         celebrate('Confirmado', budgetAlert(m));
+        route(true);
+      },
+      // Confirma de una todos los que tienen monto (los de monto variable sin completar quedan).
+      'p-all': () => {
+        const ready = due
+          .map((p) => ({ p, amount: parseAmount(root.querySelector(`.pend-in[data-id="${p.id}"]`)?.value || '') }))
+          .filter((x) => x.amount > 0);
+        if (!ready.length) return toast('Completá los montos primero');
+        const snap = store.snapshot();
+        const saved = ready.map((x) => store.confirmPending(x.p.id, x.amount)).filter(Boolean);
+        checkSave();
+        const label = `${saved.length} ${saved.length === 1 ? 'confirmado' : 'confirmados'}`;
+        celebrate(label[0].toUpperCase() + label.slice(1), saved.map(budgetAlert).find(Boolean));
+        offerUndo(snap, label[0].toUpperCase() + label.slice(1));
+        if (ready.length < due.length) toast('Los que no tienen monto quedaron para completar');
         route(true);
       },
       'p-skip': async (el) => {

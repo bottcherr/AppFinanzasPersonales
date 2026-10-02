@@ -39,7 +39,10 @@ Datos en `localStorage` (clave `appfinanzas.v1`). Montos como enteros. No hay se
 - `js/store.js` — única capa que toca `localStorage`. `normalize()` limpia datos viejos/importados.
   Fijos: `processRecurring()` arma los pendientes vencidos (uno por ciclo, con su fecha) cada vez que se navega.
 - `js/rules.js` — `suggestCategory()` (reglas aprendidas primero, después palabras clave de `data.js`; gana la más
-  larga) y `parseLine()/parseBatch()` para la carga en lote.
+  larga) y `parseLine()/parseBatch()` para la carga en lote. Si el texto parece un ticket (`looksLikeTicket`: dice
+  CUIT o TOTAL; texto pegado con "Escanear texto" del iPhone) saltea totales, IVA, pagos y descuentos, limpia
+  códigos y "2 x 1.250", usa la fecha impresa y devuelve el `total` (lo usa "Juntar en un solo gasto" del lote).
+  Solo en modo ticket, para que "Pago de luz 5000" en una lista común no se saltee.
 - `js/qr.js` — QR fiscal de ARCA (`?p=` base64 JSON: fecha, CUIT, importe, moneda/ctz; **no trae productos**, se
   anota un solo gasto por el total). `scanQR()` en app.js: cámara en vivo que escanea sola (alterna
   el cuadro entero y el centro ampliado 2x/3x), zoom con dos dedos o 1x/2x/3x (zoom real de la cámara si
@@ -79,6 +82,8 @@ Datos en `localStorage` (clave `appfinanzas.v1`). Montos como enteros. No hay se
     ni recursos de otros sitios. No usar `onclick=` en el HTML ni cargar nada de CDNs: si hace falta una fuente o
     librería, guardarla en el repo.
   - Importar backup: máximo 5 MB.
+- Fijos: diario (con "Solo de lunes a viernes", campo `workdays`), semanal, mensual y anual. Un diario no junta más
+  de 2 semanas de pendientes. En "Para confirmar" hay "Confirmar todos" (los que tienen monto).
 - Una regla se aprende solo cuando el usuario cambia la categoría a mano (o la corrige al editar).
 - El gráfico de Análisis no depende solo del color (los colores de categoría Comida/Súper se parecen): barra con
   separación entre tramos + lista con nombre, monto y % como leyenda; tocar un tramo lo resalta.
