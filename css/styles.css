@@ -2264,8 +2264,11 @@ label.sheet-btn {
 }
 
 .scan-zoom button {
-  min-width: 38px;
+  display: grid;
+  place-items: center;
+  width: 42px;
   height: 30px;
+  text-align: center;
   border-radius: 999px;
   color: #fff;
   font-size: 13px;
