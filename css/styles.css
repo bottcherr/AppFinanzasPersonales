@@ -1545,6 +1545,71 @@ button.row:active {
   border-top: 1px solid var(--border);
 }
 
+/* Análisis: gasto por semana (una barrita por semana) y promedio por categoría. */
+.week-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.week-row {
+  display: grid;
+  grid-template-columns: 92px 1fr auto;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+}
+
+.week-lbl {
+  display: flex;
+  flex-direction: column;
+  color: var(--muted);
+}
+
+.week-lbl small {
+  font-size: 11px;
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.week-row.on .week-lbl {
+  color: var(--text);
+}
+
+.week-bar {
+  height: 8px;
+  border-radius: 99px;
+  background: var(--surface-3);
+  overflow: hidden;
+}
+
+.week-bar i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: color-mix(in srgb, var(--accent) 55%, transparent);
+}
+
+.week-row.on .week-bar i {
+  background: var(--accent);
+}
+
+.week-row b {
+  font-variant-numeric: tabular-nums;
+  min-width: 76px;
+  text-align: right;
+}
+
+.avg-total {
+  color: var(--muted);
+  font-size: 14px;
+  margin-bottom: 4px;
+}
+
+.avg-total b {
+  color: var(--text);
+}
+
 .legend-row.hl {
   background: var(--surface-2);
 }

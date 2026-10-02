@@ -829,7 +829,7 @@ function renderHome() {
             <button class="icon-btn sm" data-action="toggle-hide" aria-label="${hide ? 'Mostrar' : 'Ocultar'} montos">${icon(hide ? 'eye-off' : 'eye')}</button>
           </div>
           <div class="spent-amount">${money(total)}</div>
-          <small>${gastos.length} ${gastos.length === 1 ? 'gasto' : 'gastos'}</small>
+          <small>${gastos.length} ${gastos.length === 1 ? 'gasto' : 'gastos'}${isCurrent ? ` · Esta semana ${money(weekSpent())}` : ''}</small>
         </section>
         <div class="row-links">
           <h2 class="sec-title">Últimos gastos</h2>
@@ -1235,6 +1235,89 @@ function renderHistory() {
  * "En qué se fue la plata": una barra de 100 % partida por categoría (con separación entre tramos)
  * y la lista debajo como leyenda, con nombre, monto y porcentaje. Así no depende solo del color.
  */
+/** Lunes de la semana de una fecha 'YYYY-MM-DD' (la semana va de lunes a domingo, como el calendario). */
+const mondayOf = (d) => addDays(d, -((parseDate(d).getDay() + 6) % 7));
+
+/** Gastado desde el lunes hasta hoy (aunque la semana haya empezado el mes pasado). */
+function weekSpent() {
+  const today = todayStr();
+  const from = mondayOf(today);
+  return state.movements.reduce((s, m) => (m.type === 'gasto' && m.date >= from && m.date <= today ? s + m.amount : s), 0);
+}
+
+const shortDay = (d) => `${Number(d.slice(8))} ${MONTHS[Number(d.slice(5, 7)) - 1].slice(0, 3)}`;
+
+/** Tarjeta "Por semana": cada semana del mes (de lunes a domingo, recortada a los días del mes). */
+function weeksCard(ym) {
+  const today = todayStr();
+  const first = `${ym}-01`;
+  const last = `${ym}-${String(daysInMonth(ym)).padStart(2, '0')}`;
+  const weeks = [];
+  for (let start = mondayOf(first); start <= last; start = addDays(start, 7)) {
+    const from = start < first ? first : start;
+    const end = addDays(start, 6);
+    const to = end > last ? last : end;
+    if (from > today) break; // semanas que todavía no empezaron
+    const total = state.movements.reduce(
+      (s, m) => (m.type === 'gasto' && m.date >= from && m.date <= to ? s + m.amount : s),
+      0,
+    );
+    weeks.push({ from, to, total, now: today >= from && today <= to });
+  }
+  if (!weeks.some((w) => w.total)) return '';
+  const max = Math.max(...weeks.map((w) => w.total), 1);
+  return `<section class="card pad">
+    <div class="sec-head"><h2>Por semana</h2><small class="muted-sm">de lunes a domingo</small></div>
+    <div class="week-list">${weeks
+      .map(
+        (w) => `<div class="week-row${w.now ? ' on' : ''}">
+          <span class="week-lbl">${w.from === w.to ? shortDay(w.from) : `${Number(w.from.slice(8))}–${shortDay(w.to)}`}${w.now ? '<small>Esta semana</small>' : ''}</span>
+          <span class="week-bar"><i style="width:${((w.total / max) * 100).toFixed(1)}%"></i></span>
+          <b>${money(w.total)}</b>
+        </div>`,
+      )
+      .join('')}</div>
+  </section>`;
+}
+
+/**
+ * Tarjeta "Promedio por mes": cuánto se gasta en promedio en cada categoría, contando solo los meses ya
+ * terminados (hasta 12, desde el primero con gastos). Se actualiza sola cuando cierra cada mes.
+ */
+function averagesCard(ym, spent) {
+  const nowYm = store.currentMonth();
+  const closed = monthlySeries().filter((s) => s.ym < nowYm);
+  if (!closed.length)
+    return `<section class="card pad">
+      <div class="sec-head"><h2>Promedio por mes</h2></div>
+      <p class="muted-sm">Cuando termine tu primer mes, acá vas a ver cuánto gastás en promedio en cada categoría.</p>
+    </section>`;
+  const sums = new Map();
+  for (const s of closed) for (const [id, v] of store.spentByCategory(s.ym)) sums.set(id, (sums.get(id) || 0) + v);
+  const n = closed.length;
+  const rows = [...sums.entries()]
+    .map(([id, v]) => ({ id, avg: Math.round(v / n) }))
+    .filter((r) => r.avg > 0)
+    .sort((a, b) => b.avg - a.avg);
+  const totalAvg = rows.reduce((s, r) => s + r.avg, 0);
+  const label = ym === nowYm ? 'Este mes' : MONTHS[Number(ym.slice(5)) - 1].replace(/^./, (c) => c.toUpperCase());
+  return `<section class="card pad">
+    <div class="sec-head"><h2>Promedio por mes</h2><small class="muted-sm">${n === 1 ? 'el último mes cerrado' : `últimos ${n} meses cerrados`}</small></div>
+    <p class="avg-total">En total, <b>${money(totalAvg)}</b> por mes</p>
+    <div class="legend">${rows
+      .map((r) => {
+        const c = catOf(r.id);
+        const cur = spent.get(r.id) || 0;
+        return `<div class="legend-row">
+          ${catIcon(c, 'sm')}
+          <span class="legend-name">${esc(c.name)}<small class="${cur > r.avg ? 'neg' : ''}">${label}: ${money(cur)}</small></span>
+          <span class="legend-val"><b>${money(r.avg)}</b><small>por mes</small></span>
+        </div>`;
+      })
+      .join('')}</div>
+  </section>`;
+}
+
 function spendingChart(ranked, total, spentPrev, prevName) {
   if (!ranked.length) return '';
   const segs = ranked
@@ -1350,6 +1433,8 @@ function renderInsights() {
           ${compare}
         </section>
         ${spendingChart(ranked, total, spentPrev, prevName)}
+        ${weeksCard(ym)}
+        ${averagesCard(ym, spent)}
         ${projCard}
         ${budgetHTML}
       </main>

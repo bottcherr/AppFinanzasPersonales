@@ -29,7 +29,8 @@ Datos en `localStorage` (clave `appfinanzas.v1`). Montos como enteros. No hay se
   pantalla**: monto, fecha, grilla de categorías, descripción opcional que elige la categoría sola, "Se repite"; al anotar, arriba del monto están "Escanear ticket"
   (QR, ver `qr.js`) y "Varios en lote" (lleva a `#/lote`)),
   `#/movimientos` (pestaña "Historial": gastos del mes con buscador y filtro por categoría; el inicio se titula "Gastos" y el mes se elige en una pastilla a la derecha del título), `#/analisis` (total, gráfico de barra 100 %
-  por categoría con leyenda, proyección y límites), `#/ajustes` (Gastos por mes, Gastos fijos, Carga en lote y Backup), `#/meses` (barras de los últimos 12 meses desde el primero con gastos; el mes en curso dice "En curso" en vez de comparar),
+  por categoría con leyenda, "Por semana" (`weeksCard`, lunes a domingo recortado al mes), "Promedio por mes" por
+  categoría (`averagesCard`, solo meses cerrados), proyección y límites; Inicio muestra "Esta semana $X"), `#/ajustes` (Gastos por mes, Gastos fijos, Carga en lote y Backup), `#/meses` (barras de los últimos 12 meses desde el primero con gastos; el mes en curso dice "En curso" en vez de comparar),
   `#/lote`, `#/fijos`, `#/fijo/:id|nuevo`, `#/pendientes` y `#/sin-clasificar` (a estas dos se llega por los avisos
   de Inicio). `#/rapido?monto=&desc=` muestra una tarjeta para confirmar un gasto (queda de antes, no se usa desde
   ningún atajo). Se sacaron las pantallas de Categorías (editar/borrar), Reglas aprendidas y Moneda: las
