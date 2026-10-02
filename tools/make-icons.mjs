@@ -137,8 +137,8 @@ export const SPLASH = [
 
 mkdirSync(new URL('../icons/splash/', import.meta.url), { recursive: true });
 for (const [w, h, d] of SPLASH) {
-  // La moneda ocupa ~2/3 del ícono: con 104 pt de ícono, la moneda mide unos 68 pt.
+  // La moneda ocupa ~2/3 del ícono: con 150 pt de ícono, la moneda mide unos 98 pt (igual que #splash en index.html).
   const name = `icons/splash/splash-${w * d}x${h * d}.png`;
-  writeFileSync(new URL(`../${name}`, import.meta.url), png(w * d, h * d, 104 * d));
+  writeFileSync(new URL(`../${name}`, import.meta.url), png(w * d, h * d, 150 * d));
   console.log(name);
 }

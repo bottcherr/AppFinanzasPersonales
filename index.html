@@ -35,21 +35,17 @@
          en las imágenes de icons/splash, así el paso de la pantalla nativa a esta no se nota. app.js la saca. */
       .splash { position: fixed; inset: 0; z-index: 1000; display: grid; place-items: center; background: #070a0f;
         transition: opacity .35s ease; }
-      .splash img { width: 104px; height: 104px; animation: splash-in .6s ease-out both; transition: transform .35s ease; }
-      .splash span { position: absolute; left: 0; right: 0; bottom: calc(env(safe-area-inset-bottom) + 40px);
-        text-align: center; font: 700 17px/1 'Outfit', system-ui, sans-serif; letter-spacing: .02em; color: #1fbf8f;
-        animation: splash-fade .5s .15s ease-out both; }
+      .splash img { width: 150px; height: 150px; animation: splash-in .6s ease-out both; transition: transform .35s ease; }
       .splash.out { opacity: 0; pointer-events: none; }
       .splash.out img { transform: scale(1.15); }
       @keyframes splash-in { from { transform: scale(.94); } }
-      @keyframes splash-fade { from { opacity: 0; } }
       @media (pointer: fine) { .splash { display: none; } }
-      @media (prefers-reduced-motion: reduce) { .splash img, .splash span { animation: none; transition: none; } }
+      @media (prefers-reduced-motion: reduce) { .splash img { animation: none; transition: none; } }
     </style>
     <link rel="stylesheet" href="css/styles.css">
   </head>
   <body>
-    <div id="splash" class="splash" aria-hidden="true"><img src="icons/icon.svg" alt=""><span>Finanzas</span></div>
+    <div id="splash" class="splash" aria-hidden="true"><img src="icons/icon.svg" alt=""></div>
     <div id="app"></div>
     <dialog id="sheet" class="sheet"></dialog>
     <noscript>AppFinanzas necesita JavaScript para funcionar.</noscript>

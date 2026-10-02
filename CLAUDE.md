@@ -26,7 +26,8 @@ Datos en `localStorage` (clave `appfinanzas.v1`). Montos como enteros. No hay se
 - `index.html` — punto de entrada; `<dialog id="sheet">` para hojas y confirmaciones.
 - `css/styles.css` — todo el estilo, tokens en `:root` (oscuro fijo, acento verde `--accent`, títulos y monto grande con Outfit, guardada en `fonts/`). Barra de abajo, pastilla del mes y botón Anotar con estilo "Liquid Glass" (tokens `--glass-*`).
 - `js/app.js` — pantallas y router por hash: `#/` (inicio), `#/nuevo` y `#/mov/:id` (anotar/editar en **una sola
-  pantalla**: monto, fecha, grilla de categorías, descripción opcional que elige la categoría sola, "Se repite"),
+  pantalla**: monto, fecha, grilla de categorías, descripción opcional que elige la categoría sola, "Se repite"; al anotar, arriba a la derecha está "En lote", que
+  lleva a `#/lote`),
   `#/movimientos` (pestaña "Historial": gastos del mes con buscador y filtro por categoría; el inicio se titula "Gastos" y el mes se elige en una pastilla a la derecha del título), `#/analisis` (total, gráfico de barra 100 %
   por categoría con leyenda, proyección y límites), `#/ajustes` (Gastos por mes, Gastos fijos, Carga en lote y Backup), `#/meses` (barras de los últimos 12 meses desde el primero con gastos; el mes en curso dice "En curso" en vez de comparar),
   `#/lote`, `#/fijos`, `#/fijo/:id|nuevo`, `#/pendientes` y `#/sin-clasificar` (a estas dos se llega por los avisos
@@ -52,7 +53,8 @@ Datos en `localStorage` (clave `appfinanzas.v1`). Montos como enteros. No hay se
   `SPLASH`) y un `<link rel="apple-touch-startup-image">` por cada una en `index.html`. iOS la toma al agregar la app
   a inicio: para ver un cambio hay que borrar la app de inicio y volver a agregarla.
   Después de esa, `#splash` en `index.html` (estilo en el `<style>` del head, solo con `pointer: coarse`) muestra la
-  misma moneda en el mismo lugar + "Finanzas" abajo, y app.js la desvanece a los ~1,3 s de abrir.
+  misma moneda en el mismo lugar y tamaño (ícono de 150 pt, igual que en `make-icons.mjs`), y app.js la desvanece a
+  los ~2 s de abrir.
 
 ## Reglas (importante)
 

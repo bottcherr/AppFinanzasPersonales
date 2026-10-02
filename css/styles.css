@@ -1024,6 +1024,18 @@ button.row:active {
   justify-content: center;
 }
 
+/* Anotar: título siempre centrado aunque a la derecha esté el botón "En lote" (más ancho que el de cerrar). */
+.quick-form .topbar {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+}
+
+.lote-btn {
+  padding: 7px 12px;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
 .cat-grid {
   display: grid;
   grid-template-columns: repeat(4, 1fr);

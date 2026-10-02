@@ -765,7 +765,11 @@ function draftForm() {
       <header class="topbar">
         <button class="icon-btn" data-action="form-close" aria-label="Cerrar">${icon(isEdit ? 'chev-left' : 'x')}</button>
         <h1 class="topbar-title center">${isEdit ? 'Editar gasto' : 'Nuevo gasto'}</h1>
-        <div class="topbar-right">${isEdit ? `<button class="icon-btn danger" data-action="delete-mov" aria-label="Borrar">${icon('trash')}</button>` : ''}</div>
+        <div class="topbar-right">${
+          isEdit
+            ? `<button class="icon-btn danger" data-action="delete-mov" aria-label="Borrar">${icon('trash')}</button>`
+            : `<button class="pill-btn lote-btn" data-action="to-batch">${icon('layers')} En lote</button>`
+        }</div>
       </header>
       <div class="content">
         <label class="hero-amount ${d.type}"><span>${esc(cur())}</span>
@@ -792,6 +796,11 @@ function draftForm() {
       'form-close': () => {
         draft = null;
         goBack(isEdit ? '/movimientos' : '/');
+      },
+      // Reemplaza a "Nuevo gasto" en el historial: desde el lote, atrás vuelve a donde se tocó Anotar.
+      'to-batch': () => {
+        draft = null;
+        navigate('/lote', { replace: true });
       },
       'f-date': async () => {
         const v = await pickDate(d.date);
@@ -1819,7 +1828,7 @@ if ('serviceWorker' in navigator && location.protocol !== 'file:') {
 
 route();
 
-// Pantalla de carga (está en index.html y solo se ve en celular): queda ~1,3 s desde que abrió la app y se
+// Pantalla de carga (está en index.html y solo se ve en celular): queda ~2 s desde que abrió la app y se
 // desvanece. El setTimeout de respaldo la saca aunque no llegue el fin de la transición.
 const splash = document.getElementById('splash');
 if (splash && getComputedStyle(splash).display !== 'none') {
@@ -1827,7 +1836,7 @@ if (splash && getComputedStyle(splash).display !== 'none') {
     splash.classList.add('out');
     splash.addEventListener('transitionend', () => splash.remove(), { once: true });
     setTimeout(() => splash.remove(), 600);
-  }, Math.max(0, 1300 - performance.now()));
+  }, Math.max(0, 2000 - performance.now()));
 } else {
   splash?.remove();
 }
