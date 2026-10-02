@@ -314,6 +314,44 @@ function toast(message) {
   toastTimer = setTimeout(() => el.classList.remove('show'), 2600);
 }
 
+// "Deshacer" unos segundos después de guardar: vuelve los datos a como estaban justo antes.
+// Si se guarda cualquier otra cosa mientras tanto, el botón desaparece (deshacer pisaría ese cambio).
+let undo = null; // { el, timer }
+let restoring = false;
+
+function hideUndo() {
+  if (!undo) return;
+  const { el, timer } = undo;
+  undo = null;
+  clearTimeout(timer);
+  el.classList.remove('show');
+  setTimeout(() => el.remove(), 300);
+}
+
+function offerUndo(snap, label) {
+  hideUndo();
+  const el = document.createElement('div');
+  el.className = 'undo-bar';
+  el.setAttribute('role', 'status');
+  el.innerHTML = `<span>${esc(label)}</span><button type="button">Deshacer</button>`;
+  document.body.appendChild(el);
+  void el.offsetWidth; // aplicar el estado inicial antes de animar la entrada
+  el.classList.add('show');
+  el.querySelector('button').onclick = () => {
+    hideUndo();
+    restoring = true;
+    store.restore(snap);
+    restoring = false;
+    route(true);
+    toast('Listo, se deshizo');
+  };
+  undo = { el, timer: setTimeout(hideUndo, 5000) };
+}
+
+store.setOnSave(() => {
+  if (!restoring) hideUndo();
+});
+
 function checkSave() {
   if (store.lastSaveFailed()) toast('No se pudo guardar en el dispositivo');
 }
@@ -1051,6 +1089,7 @@ function saveDraft() {
     toast('Falta el monto');
     return focusEnd('#f-amount');
   }
+  const snap = store.snapshot();
   const desc = d.desc.trim();
   const changed = d.editId ? d.categoryId !== d.origCategoryId : d.catManual;
   if (changed && desc && d.categoryId && d.categoryId !== suggestCategory(desc, d.type, state)) store.learnRule(desc, d.categoryId);
@@ -1077,6 +1116,7 @@ function saveDraft() {
   }
   checkSave();
   celebrate(d.editId ? 'Guardado' : '¡Gasto anotado!', budgetAlert(m));
+  offerUndo(snap, d.editId ? 'Cambios guardados' : 'Gasto anotado');
   draft = null;
   goBack(d.editId ? '/movimientos' : '/');
 }
@@ -1109,11 +1149,13 @@ function showQuickCard(d) {
       showQuickCard(d);
     } else if (q === 'save') {
       closeSheet();
+      const snap = store.snapshot();
       if (d.catManual && d.desc && d.categoryId) store.learnRule(d.desc, d.categoryId);
       const m = store.addMovement({ type: 'gasto', amount: d.amount, date: d.date, desc: d.desc, categoryId: d.categoryId, source: 'rapido' });
       checkSave();
       celebrate('¡Gasto anotado!', budgetAlert(m));
       renderHome();
+      offerUndo(snap, 'Gasto anotado');
     } else if (q === 'edit') {
       closeSheet();
       draft = d;
@@ -1473,6 +1515,7 @@ function batchPreview() {
       'b-save': () => {
         batch.items = batch.items.filter((it) => it.amount > 0);
         if (!batch.items.length) return toast('No hay montos para guardar');
+        const snap = store.snapshot();
         for (const it of batch.items) {
           if (it.catManual && it.desc && it.categoryId && it.categoryId !== suggestCategory(it.desc, it.type, state)) {
             store.learnRule(it.desc, it.categoryId);
@@ -1486,7 +1529,9 @@ function batchPreview() {
         if (batch.importMark) store.setSetting('lastImport', batch.importMark);
         checkSave();
         const alert = saved.map(budgetAlert).find(Boolean);
-        celebrate(`${saved.length} ${saved.length === 1 ? 'gasto anotado' : 'gastos anotados'}`, alert);
+        const label = `${saved.length} ${saved.length === 1 ? 'gasto anotado' : 'gastos anotados'}`;
+        celebrate(label, alert);
+        offerUndo(snap, label[0].toUpperCase() + label.slice(1));
         batch = null;
         depth = 0;
         navigate('/', { replace: true });

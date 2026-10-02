@@ -145,6 +145,8 @@ function load() {
 
 export const state = load();
 
+let onSave = null;
+
 export function save() {
   try {
     localStorage.setItem(KEY, JSON.stringify(state));
@@ -152,6 +154,24 @@ export function save() {
   } catch {
     saveFailed = true;
   }
+  onSave?.();
+}
+
+/** Avisa cada vez que se guarda algo (lo usa "Deshacer" para no pisar cambios nuevos). */
+export function setOnSave(fn) {
+  onSave = fn;
+}
+
+/** Copia de todos los datos, para poder volver atrás con restore(). */
+export function snapshot() {
+  return JSON.stringify(state);
+}
+
+export function restore(snap) {
+  const data = normalize(JSON.parse(snap));
+  for (const k of Object.keys(state)) delete state[k];
+  Object.assign(state, data);
+  save();
 }
 
 export function lastSaveFailed() {

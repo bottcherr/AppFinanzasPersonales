@@ -53,6 +53,9 @@ Datos en `localStorage` (clave `appfinanzas.v1`). Montos como enteros. No hay se
 - Detalles de interfaz: la barra de abajo tiene nombre bajo cada ícono; el total grande cuenta hasta el valor nuevo al
   cambiar de mes (`animateTotal`); el botón "Anotar" se achica a "+" al bajar (`syncFab`, escucha el scroll de la
   ventana); las fechas de la lista quedan fijas bajo la barra de título (`--sticky-top`, lo calcula `mount()`).
+- "Deshacer": al guardar un gasto (anotar, editar, gasto rápido o lote) aparece 5 s una barra con "Deshacer"
+  (`offerUndo(snap, label)`, con `store.snapshot()` tomado antes de cambiar nada; `store.restore()` vuelve todo).
+  Si se guarda cualquier otra cosa mientras tanto (`store.setOnSave`), la barra se cierra para no pisar ese cambio.
 - Fechas: no se usan `<input type="date">` (el selector nativo no se puede estilizar y en Chrome de escritorio no
   abría). `pickDate(value)` abre un calendario propio en la hoja (Hoy/Ayer, mes con flechas, semana desde el lunes).
 - Pantalla de carga del iPhone: `icons/splash/` (una por modelo, las genera `tools/make-icons.mjs` con la lista

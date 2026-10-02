@@ -2541,6 +2541,44 @@ label.sheet-btn {
   transform: translate(-50%, 0);
 }
 
+/* Barra "Deshacer" después de guardar (por encima del cartel de guardado). */
+.undo-bar {
+  position: fixed;
+  left: 50%;
+  bottom: calc(env(safe-area-inset-bottom) + 156px); /* arriba del botón Anotar */
+  transform: translate(-50%, 20px);
+  width: min(360px, calc(100% - 32px));
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 8px 8px 16px;
+  border-radius: 16px;
+  background: var(--surface-3);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow);
+  font-size: 14px;
+  opacity: 0;
+  transition: opacity 0.2s, transform 0.25s var(--ease);
+  z-index: 75;
+}
+
+.undo-bar.show {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
+
+.undo-bar button {
+  padding: 8px 14px;
+  border-radius: 12px;
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.undo-bar button:active {
+  background: var(--accent-soft);
+}
+
 .celebrate {
   position: fixed;
   inset: 0;
